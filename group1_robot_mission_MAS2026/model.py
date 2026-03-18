@@ -1,5 +1,6 @@
 from itertools import product
 
+import solara
 from agents import GreenRobot, RedRobot, Robot, YellowRobot
 from mesa import Model
 from mesa.datacollection import DataCollector
@@ -24,6 +25,7 @@ class RobotMissionModel(Model):
         n_red_robots: int = 2,
         n_green_wastes: int = 8,
         seed: int = None,
+        update_counter: solara.Reactive[int] = None,
     ):
         super().__init__(seed=seed)
 
@@ -33,6 +35,7 @@ class RobotMissionModel(Model):
         self.zone_width = width // 3
         self.grid = MultiGrid(width, height, torus=False)
         self.running = True
+        self.update_counter = update_counter
 
         # Construction du monde
         assert (
@@ -140,9 +143,8 @@ class RobotMissionModel(Model):
 
             # Supprime les déchets transformés
             for w in wastes:
-                if w in agent.carrying:
-                    agent.carrying.remove(w)
-                    w.remove()
+                w.remove()
+            agent.carrying.clear()
 
             # On donne à l'agent le nouveau déchet transformé
             assert (
@@ -204,3 +206,8 @@ class RobotMissionModel(Model):
             len(r.carrying) == 0 for r in robots
         ):
             self.running = False
+
+        # Incrémenter le compteur de mise à jour pour rafraîchir la visualisation
+        if self.update_counter is not None:
+            self.update_counter.set(self.update_counter.get() + 1)
+            self.update_counter.set(self.update_counter.get() + 1)

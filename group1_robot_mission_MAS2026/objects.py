@@ -10,9 +10,7 @@ class Radioactivity(Agent):
 
         self.zone = zone
         self.radioactivity_level = ZONE_TO_RADIO_LEVEL[zone]
-        self.radioactivity = (
-            self.radioactivity_level.value - 1 + self.random.random()
-        ) / 3
+        self.radioactivity = (self.radioactivity_level.value + self.random.random()) / 3
 
 
 class WasteDisposalZone(Agent):

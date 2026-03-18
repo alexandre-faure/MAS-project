@@ -1,11 +1,10 @@
 import matplotlib.pyplot as plt
 import solara
-from agents import GreenRobot, RedRobot, Robot, YellowRobot
+from agents import GreenRobot, RedRobot, YellowRobot
 from matplotlib import patches
 from matplotlib.figure import Figure
-from mesa import Agent
 from model import RobotMissionModel
-from objects import Radioactivity, Waste, WasteDisposalZone
+from objects import Waste, WasteDisposalZone
 from utils import Color, Zone
 
 # Couleurs
@@ -23,65 +22,15 @@ COLORS = {
 }
 
 
-def agent_portrayal(agent: Agent):
-
-    # Radioactivité
-    if isinstance(agent, Radioactivity):
-        return {"zorder": -1, "color": "none"}
-
-    # Zone de dépôt
-    if isinstance(agent, WasteDisposalZone):
-        return {
-            "color": COLORS[WasteDisposalZone],
-            "size": 30,
-            "zorder": 1,
-        }
-
-    # Déchets
-    if isinstance(agent, Waste):
-        return {
-            "color": COLORS[agent.waste_type],
-            "size": 100,
-            "zorder": 2,
-            "marker": "x",
-        }
-
-    # Robots
-    base_robot = {
-        "marker": "o",
-        "size": 30,
-        "zorder": 3,
-    }
-    if isinstance(agent, GreenRobot):
-        return {
-            **base_robot,
-            "color": COLORS[GreenRobot],
-        }
-    if isinstance(agent, YellowRobot):
-        return {
-            **base_robot,
-            "color": COLORS[YellowRobot],
-        }
-    if isinstance(agent, RedRobot):
-        return {
-            **base_robot,
-            "color": COLORS[RedRobot],
-        }
-
-    return {}
-
-
-def post_process(ax):
-    ax.set_aspect("equal")
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_facecolor("whitesmoke")
+update_counter = solara.reactive(0)
 
 
 @solara.component
 def SpaceGraph(model: RobotMissionModel):
     """Dessine la grille à un instant t."""
-    fig = Figure(figsize=(10, 8))
+    update_counter.get()  # This is required to update the counter
+
+    fig = Figure(figsize=(10, 4))
     ax = fig.subplots()
     ax.clear()
     W, H = model.width, model.height

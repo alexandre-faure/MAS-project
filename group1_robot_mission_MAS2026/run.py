@@ -1,10 +1,10 @@
-from mesa.visualization import SolaraViz, make_space_component
+from mesa.visualization import SolaraViz
 from model import RobotMissionModel
-from server import agent_portrayal, post_process
+from server import SpaceGraph, update_counter
 
 
 def run_server():
-    robot_mission_model = RobotMissionModel()
+    robot_mission_model = RobotMissionModel(update_counter=update_counter)
 
     model_params = {
         "width": {
@@ -56,8 +56,6 @@ def run_server():
             "step": 4,
         },
     }
-
-    SpaceGraph = make_space_component(agent_portrayal, post_process=post_process)
 
     page = SolaraViz(
         robot_mission_model,
