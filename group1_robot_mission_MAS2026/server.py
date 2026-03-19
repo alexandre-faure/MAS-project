@@ -27,7 +27,7 @@ def SpaceGraph(model: RobotMissionModel):
     """Dessine la grille à un instant t."""
     update_counter.get()  # This is required to update the counter
 
-    fig = Figure(figsize=(12, 8))
+    fig = Figure(figsize=(8, 5))
     ax = fig.subplots()
     ax.clear()
     W, H = model.width, model.height
@@ -38,6 +38,13 @@ def SpaceGraph(model: RobotMissionModel):
     ax.add_patch(patches.Rectangle((zw, 0), zw, H, color=COLORS[Zone.Z2], zorder=0))
     ax.add_patch(
         patches.Rectangle((2 * zw, 0), W - 2 * zw, H, color=COLORS[Zone.Z3], zorder=0)
+    )
+
+    # Contour de la zone totale
+    ax.add_patch(
+        patches.Rectangle(
+            (0, 0), W, H, fill=False, edgecolor="#555", linewidth=1.5, zorder=1
+        )
     )
 
     # ── Grille ────────────────────────────────
@@ -154,33 +161,19 @@ def SpaceGraph(model: RobotMissionModel):
     ax.text(zw * 1.5, H + 0.15, "z2 — moyen", ha="center", fontsize=9, color="#7a5c00")
     ax.text(zw * 2.5, H + 0.15, "z3 — élevé", ha="center", fontsize=9, color="#8b1a1a")
 
-    # ── Légende ───────────────────────────────
-    legend_elems = [
-        patches.Patch(color=COLORS[GreenRobot], label="Robot vert"),
-        patches.Patch(color=COLORS[YellowRobot], label="Robot jaune"),
-        patches.Patch(color=COLORS[RedRobot], label="Robot rouge"),
-        patches.Patch(color=COLORS[Color.GREEN], label="Déchet vert"),
-        patches.Patch(color=COLORS[Color.YELLOW], label="Déchet jaune"),
-        patches.Patch(color=COLORS[Color.RED], label="Déchet rouge"),
-        patches.Patch(color=COLORS[WasteDisposalZone], alpha=0.5, label="Zone dépôt"),
-    ]
-    ax.legend(
-        handles=legend_elems,
-        loc="upper left",
-        bbox_to_anchor=(1.01, 1),
-        fontsize=8,
-        framealpha=0.9,
-    )
-
     ax.set_xlim(0, W)
-    ax.set_ylim(0, H + 0.4)
+    ax.set_ylim(0, H)
     ax.set_aspect("equal")
     ax.axis("off")
     ax.set_title(
         f"Step {model.steps} — déposés : {model.nb_collected_wastes}",
         fontsize=11,
-        pad=6,
+        pad=20,
     )
+
+    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0.01, right=0.99, bottom=0.02, top=0.9)
+
     solara.FigureMatplotlib(fig)
 
 
@@ -191,7 +184,7 @@ def WastesTracker(model: RobotMissionModel):
 
     df = model.datacollector.get_model_vars_dataframe()
 
-    fig = Figure(figsize=(10, 5))
+    fig = Figure(figsize=(6, 4))
     ax = fig.subplots()
     ax.clear()
 
@@ -200,21 +193,21 @@ def WastesTracker(model: RobotMissionModel):
         df["Déchets verts"],
         color="#28a745",
         linewidth=2,
-        label="Verts (grille)",
+        label="Verts",
     )
     ax.plot(
         df.index,
         df["Déchets jaunes"],
         color="#ffc107",
         linewidth=2,
-        label="Jaunes (grille)",
+        label="Jaunes",
     )
     ax.plot(
         df.index,
         df["Déchets rouges"],
         color="#dc3545",
         linewidth=2,
-        label="Rouges (grille)",
+        label="Rouges",
     )
     ax.set_xlabel("Step")
     ax.set_ylabel("Nombre de déchets sur la grille")
