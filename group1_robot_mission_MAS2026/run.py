@@ -1,10 +1,10 @@
 from mesa.visualization import SolaraViz
 from model import RobotMissionModel
-from server import SpaceGraph, update_counter
+from server import SpaceGraph, WastesTracker
 
 
 def run_server():
-    robot_mission_model = RobotMissionModel(update_counter=update_counter)
+    robot_mission_model = RobotMissionModel()
 
     model_params = {
         "width": {
@@ -12,28 +12,28 @@ def run_server():
             "value": 18,
             "label": "Largeur de la zone:",
             "min": 6,
-            "max": 100,
+            "max": 42,
             "step": 3,
         },
         "height": {
             "type": "SliderInt",
-            "value": 8,
+            "value": 14,
             "label": "Hauteur de la zone:",
             "min": 3,
-            "max": 100,
+            "max": 42,
             "step": 1,
         },
         "n_green_robots": {
             "type": "SliderInt",
-            "value": 3,
-            "label": "Nombre de robots vers:",
+            "value": 4,
+            "label": "Nombre de robots verts:",
             "min": 1,
             "max": 10,
             "step": 1,
         },
         "n_yellow_robots": {
             "type": "SliderInt",
-            "value": 2,
+            "value": 3,
             "label": "Nombre de robots jaunes:",
             "min": 1,
             "max": 10,
@@ -49,7 +49,7 @@ def run_server():
         },
         "n_green_wastes": {
             "type": "SliderInt",
-            "value": 8,
+            "value": 20,
             "label": "Nombre de déchets verts initiaux:",
             "min": 4,
             "max": 64,
@@ -59,7 +59,7 @@ def run_server():
 
     page = SolaraViz(
         robot_mission_model,
-        components=[SpaceGraph],
+        components=[SpaceGraph, WastesTracker],
         model_params=model_params,
         name="Robot Mission Model",
     )

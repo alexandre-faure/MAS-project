@@ -14,9 +14,11 @@ class Knowledge:
         self.positions: list[tuple[int, int]] = []
 
         self.last_seen: dict[tuple[int, int], int] = {}
+        self.last_visited: dict[tuple[int, int], int] = {}
         self.cell_data: dict[tuple[int, int], Any] = {}
         self.carried_wastes: list[list[Waste]] = []
         self.visitable_cells: set[tuple[int, int]] = set()
+        self.known_wastes: set[tuple[int, int]] = set()
 
         # Specific coordinates
         self.min_x_zone: int | None = None
@@ -65,7 +67,13 @@ class Robot(Agent, ABC):
         if radioactivity_cell is None:
             raise ValueError(f"No radioactivity found in cell {pos} for {self.name}")
 
-        wastes = [a for a in cellmates if isinstance(a, Waste)]
+        wastes = [
+            a
+            for a in cellmates
+            if isinstance(a, Waste)
+            and a.waste_type == self.color
+            and a.pos != self.knowledge.disposal_pos
+        ]
 
         waste_disposal = next(
             (a for a in cellmates if isinstance(a, WasteDisposalZone)), None
@@ -101,11 +109,16 @@ class Robot(Agent, ABC):
         self.knowledge.round += 1
         self.knowledge.positions.append(cur_pos)
         self.knowledge.visitable_cells.clear()
+        self.knowledge.last_visited[cur_pos] = self.knowledge.round
 
         for pos, data in percepts.items():
             self.knowledge.last_seen[pos] = self.knowledge.round
             self.knowledge.cell_data[pos] = data
             self.knowledge.carried_wastes.append(self.carrying)
+            if len(data["wastes"]) > 0:
+                self.knowledge.known_wastes.add(pos)
+            else:
+                self.knowledge.known_wastes.difference_update({pos})
 
             # Mise à jour de la zone de dépôt si elle est visitable
             if data["visitable"]:
@@ -154,17 +167,51 @@ class Robot(Agent, ABC):
         next_direction = self.model.random.choice(available_directions)
         return Move(next_direction)
 
+    def _discover_randomly(
+        self, knowledge: Knowledge, axis: int | None = None, epsilon: float = 0
+    ) -> Move:
+        """Méthode pour se déplacer aléatoirement vers une cellule visitable non encore visitée récemment."""
+        # Avec une probabilité epsilon, on choisit une direction aléatoire
+        # parmi les cellules visitables pour favoriser l'exploration
+        if self.random.random() < epsilon:
+            return self._move_randomly(knowledge, axis)
+
+        # Sinon, on choisit la cellule visitable qui a été visitée il y a le plus longtemps (ou jamais visitée)
+        cur_pos = knowledge.positions[-1]
+        available_moves = [
+            (knowledge.last_visited.get(pos, -1), pos)
+            for pos in knowledge.visitable_cells
+        ]
+        available_moves.sort(key=lambda x: x[0])
+        available_directions = [
+            (t, (x - cur_pos[0], y - cur_pos[1])) for t, (x, y) in available_moves
+        ]
+
+        # Filtrer les directions pour ne pas changer d'axe si un axe est spécifié
+        if axis == 0:
+            available_directions = [d for d in available_directions if d[1][1] == 0]
+        elif axis == 1:
+            available_directions = [d for d in available_directions if d[1][0] == 0]
+
+        # Récupère les candidats avec la plus ancienne visite
+        candidates = [
+            d[1] for d in available_directions if d[0] == available_directions[0][0]
+        ]
+
+        next_direction = self.model.random.choice(candidates)
+        return Move(next_direction)
+
     def _move_towards(
         self, target_pos: tuple[int | None, int | None], knowledge: Knowledge
     ) -> Move:
         """Helper method to move towards a target position."""
-        pos = knowledge.positions[-1]
+        cur_pos = knowledge.positions[-1]
         tx, ty = target_pos
         dx, dy = 0, 0
         if tx is not None:
-            dx = tx - pos[0]
+            dx = tx - cur_pos[0]
         if ty is not None:
-            dy = ty - pos[1]
+            dy = ty - cur_pos[1]
 
         direction = (0, 0)
         if abs(dx) > abs(dy):
@@ -172,12 +219,23 @@ class Robot(Agent, ABC):
         elif dy != 0:
             direction = (0, 1 if dy > 0 else -1)
 
-        next_pos = (pos[0] + direction[0], pos[1] + direction[1])
+        next_pos = (cur_pos[0] + direction[0], cur_pos[1] + direction[1])
         if next_pos in knowledge.visitable_cells:
             return Move(direction)
 
         # Si la cellule ciblée n'est pas visitable, on se déplace aléatoirement
-        return self._move_randomly(knowledge)
+        return self._discover_randomly(knowledge)
+
+    def _go_to_closest_waste(self, knowledge: Knowledge) -> Move:
+        cur_pos = knowledge.positions[-1]
+        manhattan_distances = [
+            (abs(pos[0] - cur_pos[0]) + abs(pos[1] - cur_pos[1]), pos)
+            for pos in knowledge.known_wastes
+        ]
+        if not manhattan_distances:
+            raise ValueError(f"No known wastes for {self.name} to go to.")
+        _, closest_waste_pos = min(manhattan_distances, key=lambda x: x[0])
+        return self._move_towards(closest_waste_pos, knowledge)
 
 
 class GreenRobot(Robot):
@@ -210,8 +268,12 @@ class GreenRobot(Robot):
         if green_wastes and len(carried_wastes) < 2:
             return PickUp(green_wastes[0])
 
-        # 4. Se déplacer aléatoirement dans z1
-        return self._move_randomly(knowledge)
+        # 4. Aller vers le déchet vert connu le plus proche
+        if knowledge.known_wastes:
+            return self._go_to_closest_waste(knowledge)
+
+        # 5. Explorer aléatoirement dans z1
+        return self._discover_randomly(knowledge)
 
 
 class YellowRobot(Robot):
@@ -252,8 +314,12 @@ class YellowRobot(Robot):
             # On se place à l'ouest de la frontière
             return self._move_towards((knowledge.min_x_zone - 1, None), knowledge)
 
-        # 4. Se déplacer aléatoirement à la frontière
-        return self._move_randomly(knowledge, axis=1)
+        # 5. Aller vers le déchet jaune connu le plus proche
+        if knowledge.known_wastes:
+            return self._go_to_closest_waste(knowledge)
+
+        # 6. Explorer aléatoirement à la frontière
+        return self._discover_randomly(knowledge, axis=1)
 
 
 class RedRobot(Robot):
@@ -290,8 +356,8 @@ class RedRobot(Robot):
                 # Aller vers l'est pour trouver la zone de dépôt
                 if (pos[0] + 1, pos[1]) in knowledge.visitable_cells:
                     return Move((1, 0))
-                # Sinon, se déplacer aléatoirement pour explorer
-                return self._move_randomly(knowledge)
+                # Sinon, explorer aléatoirement pour explorer
+                return self._discover_randomly(knowledge)
 
             # Si on connaît la position de la zone de dépôt, se diriger vers celle-ci
             return self._move_towards(knowledge.disposal_pos, knowledge)
@@ -321,5 +387,9 @@ class RedRobot(Robot):
             # On se place à l'ouest de la frontière
             return self._move_towards((knowledge.min_x_zone - 1, None), knowledge)
 
-        # 4. Se déplacer aléatoirement à la frontière
-        return self._move_randomly(knowledge, axis=1)
+        # 6. Aller vers le déchet rouge connu le plus proche
+        if knowledge.known_wastes:
+            return self._go_to_closest_waste(knowledge)
+
+        # 7. Explorer aléatoirement à la frontière
+        return self._discover_randomly(knowledge, axis=1)

@@ -8,6 +8,8 @@ from mesa.space import MultiGrid
 from objects import PickUp, PutDown, Radioactivity, Transform, Waste, WasteDisposalZone
 from utils import Action, Color, Move, Zone
 
+update_counter = solara.reactive(0)
+
 
 class RobotMissionModel(Model):
     """
@@ -19,13 +21,12 @@ class RobotMissionModel(Model):
     def __init__(
         self,
         width: int = 18,
-        height: int = 8,
-        n_green_robots: int = 3,
-        n_yellow_robots: int = 2,
+        height: int = 14,
+        n_green_robots: int = 4,
+        n_yellow_robots: int = 3,
         n_red_robots: int = 2,
-        n_green_wastes: int = 8,
+        n_green_wastes: int = 20,
         seed: int = None,
-        update_counter: solara.Reactive[int] = None,
     ):
         super().__init__(seed=seed)
 
@@ -35,11 +36,10 @@ class RobotMissionModel(Model):
         self.zone_width = width // 3
         self.grid = MultiGrid(width, height, torus=False)
         self.running = True
-        self.update_counter = update_counter
 
         # Construction du monde
         assert (
-            n_green_wastes <= self.zone_width // 3 * self.height
+            n_green_wastes <= self.zone_width * self.height
         ), "Too many wastes for zone 1"
 
         self._place_radioactivity()
@@ -166,23 +166,28 @@ class RobotMissionModel(Model):
 
     def nb_wastes_by_color(self, waste_type: Color) -> int:
         """Nombre de déchets d'une couleur donnée sur la grille et portés par les robots."""
+        agents = self.agents
         return sum(
             1
-            for a in self.agents
-            if isinstance(a, Waste) and a.waste_type == waste_type
+            for a in agents
+            if isinstance(a, Waste)
+            and a.waste_type == waste_type
+            and (waste_type != Color.RED or a.pos != self.waste_disposal_pos)
         )
 
     @property
     def nb_wastes(self) -> int:
         """Nombre total de déchets totaux sur la grille (hors déchets portés par les robots)."""
-        return sum(1 for a in self.agents if isinstance(a, Waste) and a.pos is not None)
+        agents = self.agents
+        return sum(1 for a in agents if isinstance(a, Waste) and a.pos is not None)
 
     @property
     def nb_collected_wastes(self) -> int:
         """Nombre de déchets déposés dans la zone de dépôt."""
+        agents = self.agents
         return sum(
             1
-            for a in self.agents
+            for a in agents
             if isinstance(a, Waste) and a.pos == self.waste_disposal_pos
         )
 
@@ -208,6 +213,4 @@ class RobotMissionModel(Model):
             self.running = False
 
         # Incrémenter le compteur de mise à jour pour rafraîchir la visualisation
-        if self.update_counter is not None:
-            self.update_counter.set(self.update_counter.get() + 1)
-            self.update_counter.set(self.update_counter.get() + 1)
+        update_counter.value += 1

@@ -3,7 +3,7 @@ import solara
 from agents import GreenRobot, RedRobot, YellowRobot
 from matplotlib import patches
 from matplotlib.figure import Figure
-from model import RobotMissionModel
+from model import RobotMissionModel, update_counter
 from objects import Waste, WasteDisposalZone
 from utils import Color, Zone
 
@@ -22,15 +22,12 @@ COLORS = {
 }
 
 
-update_counter = solara.reactive(0)
-
-
 @solara.component
 def SpaceGraph(model: RobotMissionModel):
     """Dessine la grille à un instant t."""
     update_counter.get()  # This is required to update the counter
 
-    fig = Figure(figsize=(10, 4))
+    fig = Figure(figsize=(12, 8))
     ax = fig.subplots()
     ax.clear()
     W, H = model.width, model.height
@@ -184,4 +181,48 @@ def SpaceGraph(model: RobotMissionModel):
         fontsize=11,
         pad=6,
     )
+    solara.FigureMatplotlib(fig)
+
+
+@solara.component
+def WastesTracker(model: RobotMissionModel):
+    """Affiche le nombre de déchets collectés par type au fil du temps."""
+    update_counter.get()  # This is required to update the counter
+
+    df = model.datacollector.get_model_vars_dataframe()
+
+    fig = Figure(figsize=(10, 5))
+    ax = fig.subplots()
+    ax.clear()
+
+    ax.plot(
+        df.index,
+        df["Déchets verts"],
+        color="#28a745",
+        linewidth=2,
+        label="Verts (grille)",
+    )
+    ax.plot(
+        df.index,
+        df["Déchets jaunes"],
+        color="#ffc107",
+        linewidth=2,
+        label="Jaunes (grille)",
+    )
+    ax.plot(
+        df.index,
+        df["Déchets rouges"],
+        color="#dc3545",
+        linewidth=2,
+        label="Rouges (grille)",
+    )
+    ax.set_xlabel("Step")
+    ax.set_ylabel("Nombre de déchets sur la grille")
+    max_x = 50
+    ax.set_xlim(0, max(max_x, df.index.max()) if not df.empty else max_x)
+    ax.set_ylim(0)
+    ax.set_title("Évolution des déchets par type")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
     solara.FigureMatplotlib(fig)
