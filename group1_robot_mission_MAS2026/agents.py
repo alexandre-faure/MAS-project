@@ -27,6 +27,30 @@ class Knowledge:
         # Other custom data
         self.data: dict[str, Any] = {}
 
+    def merge_with_other(self, other: "Knowledge"):
+        """Merge this knowledge with another one (e.g. during communication between robots)."""
+        # On regarde les cellules connues par l'autre robot qui sont plus à jour que les nôtres
+        cells_better_known_by_other = {
+            pos: round_seen
+            for pos, round_seen in other.last_seen.items()
+            if pos not in self.last_seen or round_seen > self.last_seen[pos]
+        }
+        self.last_seen.update(cells_better_known_by_other)
+        self.cell_data.update(
+            {pos: other.cell_data[pos] for pos in cells_better_known_by_other}
+        )
+        for pos in cells_better_known_by_other:
+            if pos in other.known_wastes:
+                self.known_wastes.add(pos)
+            else:
+                self.known_wastes.discard(pos)
+
+        if self.min_x_zone is None:
+            self.min_x_zone = other.min_x_zone
+
+        if self.disposal_pos is None:
+            self.disposal_pos = other.disposal_pos
+
 
 class Robot(Agent, ABC):
     """Abstract class to represent robots"""
@@ -118,7 +142,7 @@ class Robot(Agent, ABC):
             if len(data["wastes"]) > 0:
                 self.knowledge.known_wastes.add(pos)
             else:
-                self.knowledge.known_wastes.difference_update({pos})
+                self.knowledge.known_wastes.discard(pos)
 
             # Mise à jour de la zone de dépôt si elle est visitable
             if data["visitable"]:
@@ -135,6 +159,25 @@ class Robot(Agent, ABC):
             if not percepts[cur_pos]["is_lower_zone"] and data["is_lower_zone"]:
                 self.knowledge.min_x_zone = cur_pos[0]
 
+    def communicate(self, other: "Robot"):
+        """Communication step to exchange knowledge with another robot."""
+        # On ne communique que si les robots sont de la même couleur
+        if other.color != self.color:
+            return
+
+        # On met en commun les connaissances des deux robots
+        self.knowledge.merge_with_other(other.knowledge)
+
+    def communicate_with_neighbors(self):
+        """Communicate with other robots."""
+        cellmates = self.model.grid.get_neighborhood(
+            self.pos, moore=False, include_center=True
+        )
+        for pos in cellmates:
+            for agent in self.model.grid.get_cell_list_contents([pos]):
+                if isinstance(agent, Robot) and agent != self:
+                    self.communicate(agent)
+
     @abstractmethod
     def deliberate(self, knowledge: Knowledge) -> Action:
         """
@@ -148,6 +191,7 @@ class Robot(Agent, ABC):
         """
         percepts = self.perceive()
         self.update_knowledge(percepts)
+        self.communicate_with_neighbors()
         action = self.deliberate(self.knowledge)
         self.model.do(self, action)
 
