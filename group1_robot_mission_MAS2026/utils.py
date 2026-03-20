@@ -33,6 +33,7 @@ COLOR_TO_ZONE = {
 
 
 class ActionType(Enum):
+    WAIT = "wait"
     MOVE = "move"
     PICK_UP = "pick_up"
     PUT_DOWN = "put_down"
@@ -50,3 +51,8 @@ class Move(Action):
     def __init__(self, direction: tuple[int, int]):
         super().__init__(ActionType.MOVE)
         self.direction = direction
+
+
+class Wait(Action):
+    def __init__(self):
+        super().__init__(ActionType.WAIT)

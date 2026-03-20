@@ -6,7 +6,7 @@ from mesa import Model
 from mesa.datacollection import DataCollector
 from mesa.space import MultiGrid
 from objects import PickUp, PutDown, Radioactivity, Transform, Waste, WasteDisposalZone
-from utils import Action, Color, Move, Zone
+from utils import Action, Color, Move, Wait, Zone
 
 update_counter = solara.reactive(0)
 
@@ -111,11 +111,21 @@ class RobotMissionModel(Model):
         """
         Exécute l'action demandée par l'agent après vérification.
         """
-        if isinstance(action, Move):
+        if isinstance(action, Wait):
+            return
+
+        elif isinstance(action, Move):
             dx, dy = action.direction
             x, y = agent.pos
             nx, ny = x + dx, y + dy
-
+            # Vérification : pas d'autre robot
+            if any(
+                isinstance(a, Robot)
+                for a in self.grid.get_cell_list_contents([(nx, ny)])
+            ):
+                raise ValueError(
+                    f"Invalid move by {agent.name}: cell occupied by another robot"
+                )
             self.grid.move_agent(agent, (nx, ny))
 
         elif isinstance(action, PickUp):
