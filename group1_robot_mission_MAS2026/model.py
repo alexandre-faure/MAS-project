@@ -6,6 +6,7 @@ from itertools import product
 import solara
 from agents import GreenRobot, RedRobot, Robot, YellowRobot
 from communication.message.MessageService import MessageService
+from communication.message.MessageService import MessageService
 from mesa import Model
 from mesa.datacollection import DataCollector
 from mesa.space import MultiGrid
@@ -186,6 +187,16 @@ class RobotMissionModel(Model):
                 raise ValueError(
                     f"Invalid move action by {agent.name}: no direction or position provided"
                 )
+            nx, ny = -1, -1
+            if action.direction is not None:
+                dx, dy = action.direction
+                nx, ny = agent.pos[0] + dx, agent.pos[1] + dy
+            elif action.position is not None:
+                nx, ny = action.position
+            else:
+                raise ValueError(
+                    f"Invalid move action by {agent.name}: no direction or position provided"
+                )
             # Vérification : pas d'autre robot
             if any(
                 isinstance(a, Robot)
@@ -215,13 +226,17 @@ class RobotMissionModel(Model):
             new_waste = None
             if agent.color == Color.GREEN:
                 new_waste = Waste(self, Color.YELLOW, cur_step)
+                new_waste = Waste(self, Color.YELLOW, cur_step)
             elif agent.color == Color.YELLOW:
+                new_waste = Waste(self, Color.RED, cur_step)
+            else:
                 new_waste = Waste(self, Color.RED, cur_step)
             else:
                 raise ValueError(f"Robot {agent.name} cannot transform wastes")
 
             # Supprime les déchets transformés
             for w in wastes:
+                w.set_processed(cur_step)
                 w.set_processed(cur_step)
             agent.carrying.clear()
 
@@ -233,8 +248,11 @@ class RobotMissionModel(Model):
 
         elif isinstance(action, PutDown):
             is_processed = agent.pos == self.waste_disposal_pos
+            is_processed = agent.pos == self.waste_disposal_pos
             for waste in agent.carrying:
                 self.grid.place_agent(waste, agent.pos)
+                if is_processed:
+                    waste.set_processed(self.steps)
                 if is_processed:
                     waste.set_processed(self.steps)
             agent.carrying.clear()
