@@ -1,3 +1,12 @@
+"""
+models.py
+
+Authors:
+- Alexandre Faure
+- Sarah Lamik
+- Ylias Larbi
+"""
+
 from itertools import product
 
 import solara
@@ -27,6 +36,12 @@ class RobotMissionModel(Model):
         n_red_robots: int = 2,
         n_green_wastes: int = 20,
         seed: int = None,
+        green_robot_is_random: bool = False,
+        green_robot_has_memory: bool = True,
+        yellow_robot_is_random: bool = False,
+        yellow_robot_has_memory: bool = True,
+        red_robot_is_random: bool = False,
+        red_robot_has_memory: bool = True,
     ):
         super().__init__(seed=seed)
 
@@ -45,7 +60,17 @@ class RobotMissionModel(Model):
         self._place_radioactivity()
         self.waste_disposal_pos = self._place_waste_disposal()
         self._place_initial_wastes(n_green_wastes)
-        self._place_robots(n_green_robots, n_yellow_robots, n_red_robots)
+        self._place_robots(
+            n_green_robots,
+            n_yellow_robots,
+            n_red_robots,
+            green_robot_is_random,
+            green_robot_has_memory,
+            yellow_robot_is_random,
+            yellow_robot_has_memory,
+            red_robot_is_random,
+            red_robot_has_memory,
+        )
 
         # Collecte de données
         self.datacollector = DataCollector(
@@ -54,7 +79,7 @@ class RobotMissionModel(Model):
                 "Déchets jaunes": lambda m: m.nb_wastes_by_color(Color.YELLOW),
                 "Déchets rouges": lambda m: m.nb_wastes_by_color(Color.RED),
                 "Déposés": lambda m: m.nb_collected_wastes,
-            }
+            },
         )
 
     def _place_radioactivity(self):
@@ -77,7 +102,18 @@ class RobotMissionModel(Model):
         for x, y in waste_positions:
             self.grid.place_agent(Waste(self, Color.GREEN), (x, y))
 
-    def _place_robots(self, n_green: int, n_yellow: int, n_red: int):
+    def _place_robots(
+        self,
+        n_green: int,
+        n_yellow: int,
+        n_red: int,
+        green_robot_is_random: bool,
+        green_robot_has_memory: bool,
+        yellow_robot_is_random: bool,
+        yellow_robot_has_memory: bool,
+        red_robot_is_random: bool,
+        red_robot_has_memory: bool,
+    ):
         """Place les robots dans leurs zones respectives."""
         possible_positions = {
             GreenRobot: product(range(self.zone_width), range(self.height)),
@@ -94,17 +130,24 @@ class RobotMissionModel(Model):
             list(possible_positions[GreenRobot]), n_green
         )
         for x, y in green_positions:
-            self.grid.place_agent(GreenRobot(self), (x, y))
+            self.grid.place_agent(
+                GreenRobot(self, green_robot_is_random, green_robot_has_memory), (x, y)
+            )
 
         yellow_positions = self.random.sample(
             list(possible_positions[YellowRobot]), n_yellow
         )
         for x, y in yellow_positions:
-            self.grid.place_agent(YellowRobot(self), (x, y))
+            self.grid.place_agent(
+                YellowRobot(self, yellow_robot_is_random, yellow_robot_has_memory),
+                (x, y),
+            )
 
         red_positions = self.random.sample(list(possible_positions[RedRobot]), n_red)
         for x, y in red_positions:
-            self.grid.place_agent(RedRobot(self), (x, y))
+            self.grid.place_agent(
+                RedRobot(self, red_robot_is_random, red_robot_has_memory), (x, y)
+            )
 
     # ── DO — arbitre des actions ──────────────
     def do(self, agent: Robot, action: Action) -> dict:
@@ -115,9 +158,16 @@ class RobotMissionModel(Model):
             return
 
         elif isinstance(action, Move):
-            dx, dy = action.direction
-            x, y = agent.pos
-            nx, ny = x + dx, y + dy
+            nx, ny = -1, -1
+            if action.direction is not None:
+                dx, dy = action.direction
+                nx, ny = agent.pos[0] + dx, agent.pos[1] + dy
+            elif action.position is not None:
+                nx, ny = action.position
+            else:
+                raise ValueError(
+                    f"Invalid move action by {agent.name}: no direction or position provided"
+                )
             # Vérification : pas d'autre robot
             if any(
                 isinstance(a, Robot)
@@ -137,6 +187,7 @@ class RobotMissionModel(Model):
                 agent.carrying.append(waste)
 
         elif isinstance(action, Transform):
+            cur_step = self.steps
             wastes = action.wastes
             if any(w.waste_type != agent.color for w in wastes) or len(wastes) != 2:
                 raise ValueError(
@@ -145,15 +196,15 @@ class RobotMissionModel(Model):
 
             new_waste = None
             if agent.color == Color.GREEN:
-                new_waste = Waste(self, Color.YELLOW)
+                new_waste = Waste(self, Color.YELLOW, cur_step)
             elif agent.color == Color.YELLOW:
-                new_waste = Waste(self, Color.RED)
+                new_waste = Waste(self, Color.RED, cur_step)
             else:
                 raise ValueError(f"Robot {agent.name} cannot transform wastes")
 
             # Supprime les déchets transformés
             for w in wastes:
-                w.remove()
+                w.set_processed(cur_step)
             agent.carrying.clear()
 
             # On donne à l'agent le nouveau déchet transformé
@@ -163,8 +214,11 @@ class RobotMissionModel(Model):
             agent.carrying.append(new_waste)
 
         elif isinstance(action, PutDown):
+            is_processed = agent.pos == self.waste_disposal_pos
             for waste in agent.carrying:
                 self.grid.place_agent(waste, agent.pos)
+                if is_processed:
+                    waste.set_processed(self.steps)
             agent.carrying.clear()
 
         else:
@@ -180,16 +234,18 @@ class RobotMissionModel(Model):
         return sum(
             1
             for a in agents
-            if isinstance(a, Waste)
-            and a.waste_type == waste_type
-            and (waste_type != Color.RED or a.pos != self.waste_disposal_pos)
+            if isinstance(a, Waste) and a.waste_type == waste_type and not a.processed
         )
 
     @property
     def nb_wastes(self) -> int:
         """Nombre total de déchets totaux sur la grille (hors déchets portés par les robots)."""
         agents = self.agents
-        return sum(1 for a in agents if isinstance(a, Waste) and a.pos is not None)
+        return sum(
+            1
+            for a in agents
+            if isinstance(a, Waste) and a.pos is not None and not a.processed
+        )
 
     @property
     def nb_collected_wastes(self) -> int:
@@ -198,7 +254,9 @@ class RobotMissionModel(Model):
         return sum(
             1
             for a in agents
-            if isinstance(a, Waste) and a.pos == self.waste_disposal_pos
+            if isinstance(a, Waste)
+            and a.pos == self.waste_disposal_pos
+            and not a.processed
         )
 
     def step(self):

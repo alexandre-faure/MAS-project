@@ -1,3 +1,12 @@
+"""
+utils.py
+
+Authors:
+- Alexandre Faure
+- Sarah Lamik
+- Ylias Larbi
+"""
+
 from enum import Enum
 
 
@@ -48,9 +57,18 @@ class Action:
 
 
 class Move(Action):
-    def __init__(self, direction: tuple[int, int]):
+    def __init__(
+        self,
+        direction: tuple[int, int] | None = None,
+        position: tuple[int, int] | None = None,
+    ):
         super().__init__(ActionType.MOVE)
+        assert (direction is not None) ^ (
+            position is not None
+        ), "Either direction or position must be provided, but not both."
+
         self.direction = direction
+        self.position = position
 
 
 class Wait(Action):

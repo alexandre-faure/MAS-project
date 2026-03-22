@@ -1,3 +1,14 @@
+"""
+objects.py
+
+Authors:
+- Alexandre Faure
+- Sarah Lamik
+- Ylias Larbi
+"""
+
+from enum import Enum
+
 from mesa import Agent, Model
 from utils import ZONE_TO_RADIO_LEVEL, Action, ActionType, Color, Zone
 
@@ -20,10 +31,20 @@ class WasteDisposalZone(Agent):
 class Waste(Agent):
     """Agent representing a waste."""
 
-    def __init__(self, model: Model, waste_type: Color):
+    def __init__(self, model: Model, waste_type: Color, step_created: int = 0):
         super().__init__(model)
 
         self.waste_type = waste_type
+        self.step_created = step_created
+        self.processed = False
+        self.lifespan: int | None = None
+
+    def set_processed(self, step: int):
+        """
+        Marks the waste as processed and calculates its lifespan.
+        """
+        self.processed = True
+        self.lifespan = step - self.step_created
 
 
 ### Actions related to objects

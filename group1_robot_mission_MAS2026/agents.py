@@ -1,3 +1,12 @@
+"""
+agents.py
+
+Authors:
+- Alexandre Faure
+- Sarah Lamik
+- Ylias Larbi
+"""
+
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -232,7 +241,7 @@ class Robot(CommunicatingAgent, ABC):
             return Wait()
 
         next_direction = self.model.random.choice(candidates)
-        return Move(next_direction)
+        return Move(direction=next_direction)
 
     def _move_in_direction(
         self, direction: tuple[int, int], knowledge: Knowledge
@@ -248,13 +257,21 @@ class Robot(CommunicatingAgent, ABC):
         next_pos = (cur_pos[0] + direction[0], cur_pos[1] + direction[1])
 
         if next_pos in knowledge.visitable_cells:
-            return Move(direction)
+            return Move(direction=direction)
 
         # Si la cellule ciblée n'est pas visitable, on attend si on n'est pas bloqué
         if not self.is_locked(knowledge):
             return Wait()
 
         return self._discover_randomly(knowledge)
+
+    def _move_randomly(self, knowledge: Knowledge) -> Move:
+        """Helper method to move in a random direction."""
+        visitable_cells = knowledge.visitable_cells
+        if not visitable_cells:
+            return Wait()
+        next_pos = self.model.random.choice(list(visitable_cells))
+        return Move(position=next_pos)
 
     def _move_towards(
         self, target_pos: tuple[int | None, int | None], knowledge: Knowledge
@@ -291,8 +308,10 @@ class Robot(CommunicatingAgent, ABC):
 class GreenRobot(Robot):
     """Green robot in zone 1."""
 
-    def __init__(self, model: Model):
+    def __init__(self, model: Model, is_random: bool = False, has_memory: bool = True):
         super().__init__(model, Color.GREEN)
+        self.is_random = is_random
+        self.has_memory = has_memory
 
     def deliberate(self, knowledge: Knowledge) -> Action:
         pos = knowledge.positions[-1]
@@ -317,18 +336,22 @@ class GreenRobot(Robot):
             return PickUp(green_wastes[0])
 
         # 4. Aller vers le déchet vert connu le plus proche
-        if knowledge.known_wastes:
+        if self.has_memory and knowledge.known_wastes:
             return self._go_to_closest_waste(knowledge)
 
         # 5. Explorer aléatoirement dans z1
+        if self.is_random:
+            return self._move_randomly(knowledge)
         return self._discover_randomly(knowledge)
 
 
 class YellowRobot(Robot):
     """Yellow robot in zone 2."""
 
-    def __init__(self, model: Model):
+    def __init__(self, model: Model, is_random: bool = False, has_memory: bool = True):
         super().__init__(model, Color.YELLOW)
+        self.is_random = is_random
+        self.has_memory = has_memory
 
     def deliberate(self, knowledge: Knowledge) -> Action:
         pos = knowledge.positions[-1]
@@ -353,36 +376,31 @@ class YellowRobot(Robot):
             return PickUp(yellow_wastes[0])
 
         # 4. Aller vers le déchet jaune connu le plus proche
-        if knowledge.known_wastes:
+        if self.has_memory and knowledge.known_wastes:
             return self._go_to_closest_waste(knowledge)
 
-        # 5. Inspecter la frontière pour être prêt à récupérer les déchets jaunes déposés par les verts
+        # 5. Si le robot est naïf, il explore aléatoirement
+        if self.is_random:
+            return self._move_randomly(knowledge)
+
+        # 6. Inspecter la frontière pour être prêt à récupérer les déchets jaunes déposés par les verts
         if knowledge.min_x_zone is None:
             # On se place à l'ouest de la frontière
             return self._move_in_direction((-1, 0), knowledge)
         if pos[0] != knowledge.min_x_zone - 1:
             return self._move_towards((knowledge.min_x_zone - 1, None), knowledge)
 
-        # 6. Explorer aléatoirement à la frontière
+        # 7. Explorer aléatoirement à la frontière
         return self._discover_randomly(knowledge, axis=1)
 
 
 class RedRobot(Robot):
     """Red robot in zone 3."""
 
-    def __init__(self, model: Model):
+    def __init__(self, model: Model, is_random: bool = False, has_memory: bool = True):
         super().__init__(model, Color.RED)
-
-    def update_knowledge(self, percepts):
-        super().update_knowledge(percepts)
-        # Gestion de la stratégie de recherche de la zone de dépôt
-        if self.knowledge.disposal_pos is None:
-            if self.knowledge.data.get("disposal_search_direction") is None:
-                self.knowledge.data["disposal_search_direction"] = (0, 1)
-            elif (self.pos[0], self.pos[1] + 1) not in self.knowledge.visitable_cells:
-                self.knowledge.data["disposal_search_direction"] = (0, -1)
-        elif self.knowledge.data.get("disposal_search_direction") is not None:
-            self.knowledge.data["disposal_search_direction"] = None
+        self.is_random = is_random
+        self.has_memory = has_memory
 
     def deliberate(self, knowledge: Knowledge) -> Action:
         pos = knowledge.positions[-1]
@@ -391,7 +409,7 @@ class RedRobot(Robot):
         disposal_pos = knowledge.disposal_pos
 
         # 1. Trouver la zone de dépôt si on ne la connaît pas encore
-        if disposal_pos is None:
+        if not self.is_random and disposal_pos is None:
             if (pos[0] + 1, pos[1]) in knowledge.in_grid_cells:
                 return self._move_in_direction((1, 0), knowledge)
             return self._discover_randomly(knowledge, axis=1)
@@ -401,24 +419,28 @@ class RedRobot(Robot):
             return PutDown(carried_wastes[0])
 
         # 3. Si on porte un rouge, naviguer vers la zone de dépôt
-        if carried_wastes:
+        if carried_wastes and self.has_memory and knowledge.disposal_pos is not None:
             return self._move_towards(knowledge.disposal_pos, knowledge)
 
-        # 4. Ramasser un déchet rouge
+        # 4. Ramasser un déchet rouge si on n'en porte pas déjà un
         red_wastes = current_cell_data["wastes"]
-        if red_wastes:
+        if red_wastes and not self.carrying:
             return PickUp(red_wastes[0])
 
-        # 5. Inspecter la frontière pour être prêt à récupérer les déchets rouges déposés par les jaunes
+        # 5. Aller vers le déchet rouge connu le plus proche
+        if self.has_memory and knowledge.known_wastes:
+            return self._go_to_closest_waste(knowledge)
+
+        # 6. Si le robot est naïf, il explore aléatoirement
+        if self.is_random:
+            return self._move_randomly(knowledge)
+
+        # 7. Inspecter la frontière pour être prêt à récupérer les déchets rouges déposés par les jaunes
         if knowledge.min_x_zone is None:
             # On se place vers l'ouest
             return self._move_in_direction((-1, 0), knowledge)
         if pos[0] != knowledge.min_x_zone - 1:
             return self._move_towards((knowledge.min_x_zone - 1, None), knowledge)
 
-        # 6. Aller vers le déchet rouge connu le plus proche
-        if knowledge.known_wastes:
-            return self._go_to_closest_waste(knowledge)
-
-        # 7. Explorer aléatoirement à la frontière
+        # 8. Explorer aléatoirement à la frontière
         return self._discover_randomly(knowledge, axis=1)

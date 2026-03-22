@@ -1,4 +1,14 @@
+"""
+server.py
+
+Authors:
+- Alexandre Faure
+- Sarah Lamik
+- Ylias Larbi
+"""
+
 import matplotlib.pyplot as plt
+import pandas as pd
 import solara
 from agents import GreenRobot, RedRobot, YellowRobot
 from matplotlib import patches
@@ -178,7 +188,7 @@ def SpaceGraph(model: RobotMissionModel):
 
 
 @solara.component
-def WastesTracker(model: RobotMissionModel):
+def WastesCollectionTracker(model: RobotMissionModel):
     """Affiche le nombre de déchets collectés par type au fil du temps."""
     update_counter.get()  # This is required to update the counter
 
