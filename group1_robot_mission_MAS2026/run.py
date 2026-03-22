@@ -1,7 +1,8 @@
-# Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026
+"""Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026"""
+
 from mesa.visualization import SolaraViz
 from model import RobotMissionModel
-from server import SpaceGraph, WastesTracker
+from server import SpaceGraph, WastesCollectionTracker
 
 
 def run_server():
@@ -56,11 +57,41 @@ def run_server():
             "max": 64,
             "step": 4,
         },
+        "green_robot_is_random": {
+            "type": "Checkbox",
+            "value": False,
+            "label": "Les robots verts explorent-ils aléatoirement ?",
+        },
+        "green_robot_has_memory": {
+            "type": "Checkbox",
+            "value": True,
+            "label": "Les robots verts apprennent de leur environnement ?",
+        },
+        "yellow_robot_is_random": {
+            "type": "Checkbox",
+            "value": False,
+            "label": "Les robots jaunes explorent-ils aléatoirement ?",
+        },
+        "yellow_robot_has_memory": {
+            "type": "Checkbox",
+            "value": True,
+            "label": "Les robots jaunes apprennent de leur environnement ?",
+        },
+        "red_robot_is_random": {
+            "type": "Checkbox",
+            "value": False,
+            "label": "Les robots rouges explorent-ils aléatoirement ?",
+        },
+        "red_robot_has_memory": {
+            "type": "Checkbox",
+            "value": True,
+            "label": "Les robots rouges apprennent de leur environnement ?",
+        },
     }
 
     page = SolaraViz(
         robot_mission_model,
-        components=[SpaceGraph, WastesTracker],
+        components=[SpaceGraph, WastesCollectionTracker],
         model_params=model_params,
         name="Robot Mission Model",
     )
