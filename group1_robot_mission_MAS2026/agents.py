@@ -142,7 +142,7 @@ class Robot(CommunicatingAgent, ABC):
         - ...
         """
         neighborhood = self.model.grid.get_neighborhood(
-            self.pos, moore=False, include_center=True
+            self.pos, moore=False, include_center=True # perception de Von Neumann
         )
         data_per_cell = {pos: self.__get_cell_data(pos) for pos in neighborhood}
         return data_per_cell

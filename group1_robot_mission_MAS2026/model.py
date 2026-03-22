@@ -82,7 +82,7 @@ class RobotMissionModel(Model):
         possible_positions = {
             GreenRobot: product(range(self.zone_width), range(self.height)),
             YellowRobot: product(
-                range(self.zone_width, 2 * self.zone_width),
+                range(self.zone_width, 2 * self.zone_width), #toutes les zones sont de même largeur
                 range(self.height),
             ),
             RedRobot: product(
@@ -148,7 +148,7 @@ class RobotMissionModel(Model):
                 new_waste = Waste(self, Color.YELLOW)
             elif agent.color == Color.YELLOW:
                 new_waste = Waste(self, Color.RED)
-            else:
+            else: #agent red
                 raise ValueError(f"Robot {agent.name} cannot transform wastes")
 
             # Supprime les déchets transformés
@@ -182,7 +182,8 @@ class RobotMissionModel(Model):
             for a in agents
             if isinstance(a, Waste)
             and a.waste_type == waste_type
-            and (waste_type != Color.RED or a.pos != self.waste_disposal_pos)
+            and (waste_type != Color.RED or a.pos != self.waste_disposal_pos) 
+            # les déchets rouges déposés sont comptés dans nb_collected_wastes, pas ici
         )
 
     @property
