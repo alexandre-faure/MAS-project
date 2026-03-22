@@ -7,7 +7,8 @@ from mesa.datacollection import DataCollector
 from mesa.space import MultiGrid
 from objects import PickUp, PutDown, Radioactivity, Transform, Waste, WasteDisposalZone
 from utils import Action, Color, Move, Wait, Zone
-
+from communication.agent.CommunicatingAgent import CommunicatingAgent
+from communication.message.MessageService import MessageService
 update_counter = solara.reactive(0)
 
 
@@ -36,7 +37,7 @@ class RobotMissionModel(Model):
         self.zone_width = width // 3
         self.grid = MultiGrid(width, height, torus=False)
         self.running = True
-
+        
         # Construction du monde
         assert (
             n_green_wastes <= self.zone_width * self.height
@@ -45,7 +46,9 @@ class RobotMissionModel(Model):
         self._place_radioactivity()
         self.waste_disposal_pos = self._place_waste_disposal()
         self._place_initial_wastes(n_green_wastes)
+        self.message_service = MessageService(self)
         self._place_robots(n_green_robots, n_yellow_robots, n_red_robots)
+        
 
         # Collecte de données
         self.datacollector = DataCollector(

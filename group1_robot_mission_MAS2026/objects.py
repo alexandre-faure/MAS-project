@@ -12,10 +12,14 @@ class Radioactivity(Agent):
         self.radioactivity_level = ZONE_TO_RADIO_LEVEL[zone]
         self.radioactivity = (self.radioactivity_level.value + self.random.random()) / 3
 
+    def get_name(self):
+        return f"Radioactivity_{self.unique_id}"
+
 
 class WasteDisposalZone(Agent):
     """Agent representing that a cell is a waste disposal zone."""
-
+    def get_name(self):
+        return f"WasteDisposalZone_{self.unique_id}"
 
 class Waste(Agent):
     """Agent representing a waste."""
@@ -25,6 +29,8 @@ class Waste(Agent):
 
         self.waste_type = waste_type
 
+    def get_name(self):
+        return f"Waste_{self.unique_id}"
 
 ### Actions related to objects
 class PickUp(Action):
