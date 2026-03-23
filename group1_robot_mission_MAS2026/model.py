@@ -277,6 +277,9 @@ class RobotMissionModel(Model):
         for robot in robots:
             robot.step_agent()
 
+        # Incrémenter le compteur de mise à jour pour rafraîchir la visualisation
+        update_counter.value += 1
+
         # Arrêter quand tout est collecté
         if self.nb_wastes == 0 and all(len(r.carrying) == 0 for r in robots):
             self.running = False
@@ -284,6 +287,3 @@ class RobotMissionModel(Model):
         # Arrêter si on atteint le nombre maximum de pas de temps
         if self.steps >= self.max_step:
             self.running = False
-
-        # Incrémenter le compteur de mise à jour pour rafraîchir la visualisation
-        update_counter.value += 1
