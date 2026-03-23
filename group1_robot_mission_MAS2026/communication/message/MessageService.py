@@ -18,6 +18,11 @@ class MessageService:
         """ Static access method.
         """
         return MessageService.__instance
+    
+    @staticmethod
+    def reset():
+        """Reset the singleton instance (used when re-initializing the model)."""
+        MessageService.__instance = None
 
     def __init__(self, model,instant_delivery=True):
         """ Create a new MessageService object.

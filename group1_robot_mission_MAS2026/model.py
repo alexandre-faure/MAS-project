@@ -47,6 +47,7 @@ class RobotMissionModel(Model):
         self._place_radioactivity()
         self.waste_disposal_pos = self._place_waste_disposal()
         self._place_initial_wastes(n_green_wastes)
+        MessageService.reset()
         self.message_service = MessageService(self)
         self._place_robots(n_green_robots, n_yellow_robots, n_red_robots)
         
