@@ -1,4 +1,5 @@
-# Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026
+"""Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026"""
+
 from enum import Enum
 
 
@@ -26,6 +27,8 @@ ZONE_TO_RADIO_LEVEL = {
     Zone.Z3: RadioactivityLevel.HIGH,
 }
 
+COLORS = [Color.GREEN, Color.YELLOW, Color.RED]
+
 COLOR_TO_ZONE = {
     Color.GREEN: Zone.Z1,
     Color.YELLOW: Zone.Z2,
@@ -49,9 +52,18 @@ class Action:
 
 
 class Move(Action):
-    def __init__(self, direction: tuple[int, int]):
+    def __init__(
+        self,
+        direction: tuple[int, int] | None = None,
+        position: tuple[int, int] | None = None,
+    ):
         super().__init__(ActionType.MOVE)
+        assert (direction is not None) ^ (
+            position is not None
+        ), "Either direction or position must be provided, but not both."
+
         self.direction = direction
+        self.position = position
 
 
 class Wait(Action):

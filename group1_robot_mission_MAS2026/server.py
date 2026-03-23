@@ -1,5 +1,7 @@
-# Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026
+"""Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026"""
+
 import matplotlib.pyplot as plt
+import pandas as pd
 import solara
 from agents import GreenRobot, RedRobot, YellowRobot
 from matplotlib import patches
@@ -179,7 +181,7 @@ def SpaceGraph(model: RobotMissionModel):
 
 
 @solara.component
-def WastesTracker(model: RobotMissionModel):
+def WastesCollectionTracker(model: RobotMissionModel):
     """Affiche le nombre de déchets collectés par type au fil du temps."""
     update_counter.get()  # This is required to update the counter
 
@@ -212,10 +214,38 @@ def WastesTracker(model: RobotMissionModel):
     )
     ax.set_xlabel("Step")
     ax.set_ylabel("Nombre de déchets sur la grille")
-    max_x = 50
-    ax.set_xlim(0, max(max_x, df.index.max()) if not df.empty else max_x)
+    ax.set_xlim(0, model.max_step)
     ax.set_ylim(0)
     ax.set_title("Évolution des déchets par type")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    solara.FigureMatplotlib(fig)
+
+
+@solara.component
+def RatioCollectedTracker(model: RobotMissionModel):
+    """Affiche le ratio de déchets collectés au fil du temps."""
+    update_counter.get()  # This is required to update the counter
+
+    df = model.datacollector.get_model_vars_dataframe()
+
+    fig = Figure(figsize=(6, 4))
+    ax = fig.subplots()
+    ax.clear()
+
+    ax.plot(
+        df.index,
+        df["Ratio collecté"],
+        color="#6f42c1",
+        linewidth=2,
+        label="Ratio collecté",
+    )
+    ax.set_xlabel("Step")
+    ax.set_ylabel("Ratio de déchets collectés")
+    ax.set_xlim(0, model.max_step)
+    ax.set_ylim(0, 1)
+    ax.set_title("Évolution du ratio de déchets collectés")
     ax.legend()
     ax.grid(True, alpha=0.3)
 
