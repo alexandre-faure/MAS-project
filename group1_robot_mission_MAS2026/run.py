@@ -2,7 +2,7 @@
 
 from mesa.visualization import SolaraViz
 from model import RobotMissionModel
-from server import SpaceGraph, WastesCollectionTracker
+from server import RatioCollectedTracker, SpaceGraph, WastesCollectionTracker
 
 
 def run_server():
@@ -57,6 +57,14 @@ def run_server():
             "max": 64,
             "step": 4,
         },
+        "max_step": {
+            "type": "SliderInt",
+            "value": 200,
+            "label": "Nombre de pas de temps maximum:",
+            "min": 50,
+            "max": 500,
+            "step": 10,
+        },
         "green_robot_is_random": {
             "type": "Checkbox",
             "value": False,
@@ -91,7 +99,7 @@ def run_server():
 
     page = SolaraViz(
         robot_mission_model,
-        components=[SpaceGraph, WastesCollectionTracker],
+        components=[SpaceGraph, WastesCollectionTracker, RatioCollectedTracker],
         model_params=model_params,
         name="Robot Mission Model",
     )

@@ -27,6 +27,8 @@ ZONE_TO_RADIO_LEVEL = {
     Zone.Z3: RadioactivityLevel.HIGH,
 }
 
+COLORS = [Color.GREEN, Color.YELLOW, Color.RED]
+
 COLOR_TO_ZONE = {
     Color.GREEN: Zone.Z1,
     Color.YELLOW: Zone.Z2,

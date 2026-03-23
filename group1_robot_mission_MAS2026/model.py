@@ -8,6 +8,7 @@ from communication.message.MessageService import MessageService
 from mesa import Model
 from mesa.datacollection import DataCollector
 from mesa.space import MultiGrid
+from metrics import ratio_collected
 from objects import PickUp, PutDown, Radioactivity, Transform, Waste, WasteDisposalZone
 from utils import Action, Color, Move, Wait, Zone
 
@@ -30,6 +31,7 @@ class RobotMissionModel(Model):
         n_red_robots: int = 2,
         n_green_wastes: int = 20,
         seed: int = None,
+        max_step: int = 200,
         green_robot_is_random: bool = False,
         green_robot_has_memory: bool = True,
         yellow_robot_is_random: bool = False,
@@ -45,6 +47,7 @@ class RobotMissionModel(Model):
         self.zone_width = width // 3
         self.grid = MultiGrid(width, height, torus=False)
         self.running = True
+        self.max_step = max_step
 
         # Construction du monde
         assert (
@@ -53,6 +56,7 @@ class RobotMissionModel(Model):
 
         self._place_radioactivity()
         self.waste_disposal_pos = self._place_waste_disposal()
+        self.n_green_wastes = n_green_wastes
         self._place_initial_wastes(n_green_wastes)
         self.message_service = MessageService(self)
         self._place_robots(
@@ -74,6 +78,7 @@ class RobotMissionModel(Model):
                 "Déchets jaunes": lambda m: m.nb_wastes_by_color(Color.YELLOW),
                 "Déchets rouges": lambda m: m.nb_wastes_by_color(Color.RED),
                 "Déposés": lambda m: m.nb_collected_wastes,
+                "Ratio collecté": ratio_collected,
             },
         )
 
@@ -248,14 +253,12 @@ class RobotMissionModel(Model):
 
     @property
     def nb_collected_wastes(self) -> int:
-        """Nombre de déchets déposés dans la zone de dépôt."""
+        """Nombre de déchets rouges déposés dans la zone de dépôt."""
         agents = self.agents
         return sum(
             1
             for a in agents
-            if isinstance(a, Waste)
-            and a.pos == self.waste_disposal_pos
-            and not a.processed
+            if isinstance(a, Waste) and a.pos == self.waste_disposal_pos and a.processed
         )
 
     def step(self):
@@ -274,9 +277,11 @@ class RobotMissionModel(Model):
             robot.step_agent()
 
         # Arrêter quand tout est collecté
-        if self.nb_wastes == self.nb_collected_wastes and all(
-            len(r.carrying) == 0 for r in robots
-        ):
+        if self.nb_wastes == 0 and all(len(r.carrying) == 0 for r in robots):
+            self.running = False
+
+        # Arrêter si on atteint le nombre maximum de pas de temps
+        if self.steps >= self.max_step:
             self.running = False
 
         # Incrémenter le compteur de mise à jour pour rafraîchir la visualisation
