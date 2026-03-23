@@ -22,6 +22,15 @@ To run the model, simply execute the following command from the repository ̀`1_
 solara run run.py
 ```
 
+### Running the model with the comparisons of three different scenari
+
+Three scenari: Random VS   Patrol+Memory and no communication   VS Patrol+Memory+Communication
+To run the model, simply execute the following command from the repository ̀`1_robot_mission_MAS2026` directory:
+
+```bash
+solara run run_comparison.py
+```
+
 ## Model hypothesis
 
 Most of the rules of the model are defined in the [subject file](./Self-organization%20of%20robots%20in%20a%20hostile%20environment%202026.pdf).
