@@ -2,7 +2,7 @@
 
 from mesa.visualization import SolaraViz
 from model import RobotMissionModel
-from server import RatioCollectedTracker, SpaceGraph, WastesCollectionTracker
+from server import RatioToCollectTracker, SpaceGraph, WastesCollectionTracker
 
 
 def run_server():
@@ -99,7 +99,11 @@ def run_server():
 
     page = SolaraViz(
         robot_mission_model,
-        components=[SpaceGraph, WastesCollectionTracker, RatioCollectedTracker],
+        components=[
+            SpaceGraph,
+            WastesCollectionTracker,
+            RatioToCollectTracker,
+        ],
         model_params=model_params,
         name="Robot Mission Model",
     )

@@ -8,7 +8,7 @@ from communication.message.MessageService import MessageService
 from mesa import Model
 from mesa.datacollection import DataCollector
 from mesa.space import MultiGrid
-from metrics import ratio_collected
+from metrics import exploration_ratio, load_balancing, ratio_collected, waste_lifespan
 from objects import PickUp, PutDown, Radioactivity, Transform, Waste, WasteDisposalZone
 from utils import Action, Color, Move, Wait, Zone
 
@@ -80,6 +80,9 @@ class RobotMissionModel(Model):
                 "Déchets rouges": lambda m: m.nb_wastes_by_color(Color.RED),
                 "Déposés": lambda m: m.nb_collected_wastes,
                 "Ratio collecté": ratio_collected,
+                "Durée de vie des déchets": waste_lifespan,
+                "Ratio d'exploration": exploration_ratio,
+                "Load balancing": load_balancing,
             },
         )
 
@@ -235,12 +238,7 @@ class RobotMissionModel(Model):
         """
         Nombre de déchets d'une couleur donnée encore en circulation (sur la grille ou portés par les robots, mais pas encore déposés).
         """
-        agents = self.agents
-        return sum(
-            1
-            for a in agents
-            if isinstance(a, Waste) and a.waste_type == waste_type and not a.processed
-        )
+        return len(self.get_wastes_by_color(waste_type, processed=False))
 
     @property
     def nb_wastes(self) -> int:
@@ -255,12 +253,20 @@ class RobotMissionModel(Model):
     @property
     def nb_collected_wastes(self) -> int:
         """Nombre de déchets rouges déposés dans la zone de dépôt."""
+        return len(self.get_wastes_by_color(Color.RED, processed=True))
+
+    def get_wastes_by_color(
+        self, waste_type: Color, processed: bool = False
+    ) -> list[Waste]:
+        """Retourne la liste des déchets d'une couleur donnée, en circulation ou traités selon le paramètre processed."""
         agents = self.agents
-        return sum(
-            1
+        return [
+            a
             for a in agents
-            if isinstance(a, Waste) and a.pos == self.waste_disposal_pos and a.processed
-        )
+            if isinstance(a, Waste)
+            and a.waste_type == waste_type
+            and (processed ^ (not a.processed))
+        ]
 
     def step(self):
         """

@@ -79,6 +79,8 @@ class Robot(CommunicatingAgent, ABC):
         self.color = color
         self.carrying: list[Waste] = []
         self.knowledge = Knowledge()
+        self.nb_exploring_steps = 0
+        self.nb_wastes_collected = 0
 
     @property
     def name(self):
@@ -296,6 +298,7 @@ class Robot(CommunicatingAgent, ABC):
         - 1 : prefer vertical moves (north-south)
         - None: no axis preference
         """
+        self.nb_exploring_steps += 1
 
         if not knowledge.positions:
             return Wait()
@@ -357,6 +360,8 @@ class Robot(CommunicatingAgent, ABC):
 
     def _move_randomly(self, knowledge: Knowledge) -> Move:
         """Helper method to move in a random direction."""
+        self.nb_exploring_steps += 1
+
         visitable_cells = knowledge.visitable_cells
         if not visitable_cells:
             return Wait()
@@ -367,28 +372,23 @@ class Robot(CommunicatingAgent, ABC):
         self, target_pos: tuple[int | None, int | None], knowledge: Knowledge
     ) -> Action:
         """Helper method to move towards a target position."""
-
-        if not knowledge.positions:
-            return Wait()
-
-        if target_pos is None:
-            return Wait()
-
         cur_pos = knowledge.positions[-1]
         tx, ty = target_pos
-        dx, dy = 0, 0
-        if tx is not None:
-            dx = tx - cur_pos[0]
-        if ty is not None:
-            dy = ty - cur_pos[1]
+        if tx is None:
+            tx = cur_pos[0]
+        if ty is None:
+            ty = cur_pos[1]
 
-        direction = (0, 0)
-        if abs(dx) > abs(dy):
-            direction = (1 if dx > 0 else -1, 0)
-        elif dy != 0:
-            direction = (0, 1 if dy > 0 else -1)
+        next_candidates = [
+            (abs(x - tx) + abs(y - ty), (x, y)) for (x, y) in knowledge.visitable_cells
+        ]
+        if not next_candidates:
+            return Wait()
 
-        return self._move_in_direction(direction, knowledge)
+        min_dist = min(next_candidates, key=lambda x: x[0])[0]
+        best_next = [pos for dist, pos in next_candidates if dist == min_dist]
+
+        return Move(position=self.model.random.choice(best_next))
 
     def _go_to_closest_waste(self, knowledge: Knowledge) -> Action:
 
@@ -416,6 +416,11 @@ class Robot(CommunicatingAgent, ABC):
         if not knowledge.carried_wastes:
             return []
         return knowledge.carried_wastes[-1]
+
+    def pick_up(self, waste: Waste) -> Action:
+        """Helper method to return a PickUp action for a given waste."""
+        self.nb_wastes_collected += 1
+        return PickUp(waste)
 
 
 class GreenRobot(Robot):
@@ -454,7 +459,7 @@ class GreenRobot(Robot):
         # 3. Ramasser un déchet vert sur la cellule
         green_wastes = current_cell_data.get("wastes", [])
         if green_wastes and len(carried_wastes) < 2:
-            return PickUp(green_wastes[0])
+            return self.pick_up(green_wastes[0])
 
         # 4. Aller vers le déchet vert connu le plus proche
         if self.has_memory and knowledge.known_wastes:
@@ -501,7 +506,7 @@ class YellowRobot(Robot):
         # 3. Ramasser un déchet jaune
         yellow_wastes = current_cell_data.get("wastes", [])
         if yellow_wastes and len(carried_wastes) < 2:
-            return PickUp(yellow_wastes[0])
+            return self.pick_up(yellow_wastes[0])
 
         # 4. Aller vers le déchet jaune connu le plus proche
         if self.has_memory and knowledge.known_wastes:
@@ -555,7 +560,7 @@ class RedRobot(Robot):
         # 4. Ramasser un déchet rouge si on n'en porte pas déjà un
         red_wastes = current_cell_data["wastes"]
         if red_wastes and not self.carrying:
-            return PickUp(red_wastes[0])
+            return self.pick_up(red_wastes[0])
 
         # 5. Aller vers le déchet rouge connu le plus proche
         if self.has_memory and knowledge.known_wastes:

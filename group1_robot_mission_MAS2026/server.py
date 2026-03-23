@@ -8,10 +8,10 @@ from matplotlib import patches
 from matplotlib.figure import Figure
 from model import RobotMissionModel, update_counter
 from objects import Waste, WasteDisposalZone
-from utils import Color, Zone
+from utils import COLORS, Color, Zone
 
 # Couleurs
-COLORS = {
+COLORS_MAP = {
     Zone.Z1: "#d4edda",
     Zone.Z2: "#fff3cd",
     Zone.Z3: "#f8d7da",
@@ -37,10 +37,12 @@ def SpaceGraph(model: RobotMissionModel):
     zw = model.zone_width
 
     # ── Fond des zones ────────────────────────
-    ax.add_patch(patches.Rectangle((0, 0), zw, H, color=COLORS[Zone.Z1], zorder=0))
-    ax.add_patch(patches.Rectangle((zw, 0), zw, H, color=COLORS[Zone.Z2], zorder=0))
+    ax.add_patch(patches.Rectangle((0, 0), zw, H, color=COLORS_MAP[Zone.Z1], zorder=0))
+    ax.add_patch(patches.Rectangle((zw, 0), zw, H, color=COLORS_MAP[Zone.Z2], zorder=0))
     ax.add_patch(
-        patches.Rectangle((2 * zw, 0), W - 2 * zw, H, color=COLORS[Zone.Z3], zorder=0)
+        patches.Rectangle(
+            (2 * zw, 0), W - 2 * zw, H, color=COLORS_MAP[Zone.Z3], zorder=0
+        )
     )
 
     # Contour de la zone totale
@@ -61,6 +63,9 @@ def SpaceGraph(model: RobotMissionModel):
     ax.axvline(2 * zw, color="#555", linewidth=1.5, linestyle="--", alpha=0.7)
 
     # ── Contenu des cellules ──────────────────
+    def waste_color_text(waste: Waste) -> str:
+        return waste.waste_type.value[0].upper()
+
     for x in range(W):
         for y in range(H):
             cell = model.grid.get_cell_list_contents([(x, y)])
@@ -72,7 +77,7 @@ def SpaceGraph(model: RobotMissionModel):
                         (x + 0.05, y + 0.05),
                         0.9,
                         0.9,
-                        color=COLORS[WasteDisposalZone],
+                        color=COLORS_MAP[WasteDisposalZone],
                         alpha=0.3,
                         zorder=1,
                     )
@@ -91,7 +96,7 @@ def SpaceGraph(model: RobotMissionModel):
             waste_offset = 0.0
             for a in cell:
                 if isinstance(a, Waste) and a.pos is not None:
-                    c = COLORS[a.waste_type]
+                    c = COLORS_MAP[a.waste_type]
                     ax.add_patch(
                         patches.Rectangle(
                             (x + 0.1 + waste_offset, y + 0.1),
@@ -107,57 +112,63 @@ def SpaceGraph(model: RobotMissionModel):
             for a in cell:
                 if isinstance(a, GreenRobot):
                     circle = plt.Circle(
-                        (x + 0.5, y + 0.5), 0.35, color=COLORS[GreenRobot], zorder=4
+                        (x + 0.5, y + 0.5), 0.35, color=COLORS_MAP[GreenRobot], zorder=4
                     )
                     ax.add_patch(circle)
-                    label = f"{len(a.carrying)}G"
-                    ax.text(
-                        x + 0.5,
-                        y + 0.5,
-                        label,
-                        ha="center",
-                        va="center",
-                        fontsize=7,
-                        color="white",
-                        fontweight="bold",
-                        zorder=5,
-                    )
+                    if a.carrying:
+                        label = f"{len(a.carrying)}{waste_color_text(a.carrying[-1])}"
+                        ax.text(
+                            x + 0.5,
+                            y + 0.5,
+                            label,
+                            ha="center",
+                            va="center",
+                            fontsize=7,
+                            color="white",
+                            fontweight="bold",
+                            zorder=5,
+                        )
 
                 elif isinstance(a, YellowRobot):
                     circle = plt.Circle(
-                        (x + 0.5, y + 0.5), 0.35, color=COLORS[YellowRobot], zorder=4
+                        (x + 0.5, y + 0.5),
+                        0.35,
+                        color=COLORS_MAP[YellowRobot],
+                        zorder=4,
                     )
                     ax.add_patch(circle)
-                    label = f"{len(a.carrying)}Y"
-                    ax.text(
-                        x + 0.5,
-                        y + 0.5,
-                        label,
-                        ha="center",
-                        va="center",
-                        fontsize=7,
-                        color="#333",
-                        fontweight="bold",
-                        zorder=5,
-                    )
+                    if a.carrying:
+                        label = f"{len(a.carrying)}{waste_color_text(a.carrying[-1])}"
+                        ax.text(
+                            x + 0.5,
+                            y + 0.5,
+                            label,
+                            ha="center",
+                            va="center",
+                            fontsize=7,
+                            color="#333",
+                            fontweight="bold",
+                            zorder=5,
+                        )
 
                 elif isinstance(a, RedRobot):
                     circle = plt.Circle(
-                        (x + 0.5, y + 0.5), 0.35, color=COLORS[RedRobot], zorder=4
+                        (x + 0.5, y + 0.5), 0.35, color=COLORS_MAP[RedRobot], zorder=4
                     )
                     ax.add_patch(circle)
-                    label = f"{len(a.carrying)}R"
-                    ax.text(
-                        x + 0.5,
-                        y + 0.5,
-                        label,
-                        ha="center",
-                        va="center",
-                        fontsize=7,
-                        color="white",
-                        fontweight="bold",
-                        zorder=5,
-                    )
+                    if a.carrying:
+                        label = f"{len(a.carrying)}{waste_color_text(a.carrying[-1])}"
+                        ax.text(
+                            x + 0.5,
+                            y + 0.5,
+                            label,
+                            ha="center",
+                            va="center",
+                            fontsize=7,
+                            color="white",
+                            fontweight="bold",
+                            zorder=5,
+                        )
 
     # ── Labels des zones ──────────────────────
     ax.text(zw / 2, H + 0.15, "z1 — faible", ha="center", fontsize=9, color="#2d6a2d")
@@ -224,8 +235,8 @@ def WastesCollectionTracker(model: RobotMissionModel):
 
 
 @solara.component
-def RatioCollectedTracker(model: RobotMissionModel):
-    """Affiche le ratio de déchets collectés au fil du temps."""
+def RatioToCollectTracker(model: RobotMissionModel):
+    """Affiche le ratio de déchets à collecter au fil du temps."""
     update_counter.get()  # This is required to update the counter
 
     df = model.datacollector.get_model_vars_dataframe()
@@ -236,16 +247,16 @@ def RatioCollectedTracker(model: RobotMissionModel):
 
     ax.plot(
         df.index,
-        df["Ratio collecté"],
+        1 - df["Ratio collecté"],
         color="#6f42c1",
         linewidth=2,
         label="Ratio collecté",
     )
     ax.set_xlabel("Step")
-    ax.set_ylabel("Ratio de déchets collectés")
+    ax.set_ylabel("Ratio de déchets restants")
     ax.set_xlim(0, model.max_step)
     ax.set_ylim(0, 1)
-    ax.set_title("Évolution du ratio de déchets collectés")
+    ax.set_title("Évolution du ratio de déchets à collecter")
     ax.legend()
     ax.grid(True, alpha=0.3)
 
