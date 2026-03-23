@@ -1,3 +1,4 @@
+# Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026
 from mesa import Agent, Model
 from utils import ZONE_TO_RADIO_LEVEL, Action, ActionType, Color, Zone
 

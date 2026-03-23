@@ -1,3 +1,4 @@
+# Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026
 from itertools import product
 
 import solara
