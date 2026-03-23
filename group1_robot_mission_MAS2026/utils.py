@@ -60,6 +60,7 @@ class ActionType(Enum):
     PICK_UP = "pick_up"
     PUT_DOWN = "put_down"
     TRANSFORM = "transform"
+    GIVE = "give"
 
 
 class Action:

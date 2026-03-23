@@ -181,6 +181,7 @@ class Robot(CommunicatingAgent, ABC):
             "visitable": visitable,
             "is_lower_zone": radioactivity_cell.radioactivity
             <= self.zone_min_radioactivity,
+            "robots": other_robots,
             "is_higher_zone": radioactivity_cell.radioactivity > self.max_radioactivity,
         }
 
@@ -249,6 +250,8 @@ class Robot(CommunicatingAgent, ABC):
             if message is None:
                 continue
             if message.get_performative() != MessagePerformative.INFORM_REF:
+                #si demande d'échange, on le traitera dans deliberate 
+                # pour pouvoir répondre en proposant un échange
                 continue
 
             payload = message.get_content()
@@ -322,6 +325,7 @@ class Robot(CommunicatingAgent, ABC):
                     "is_higher_zone"
                 ):
                     self.knowledge.max_x_zone = cur_pos[0]
+
 
     @abstractmethod
     def deliberate(self, knowledge: Knowledge) -> Action:
@@ -501,11 +505,28 @@ class GreenRobot(Robot):
         carried_wastes = self._get_current_carried_wastes(knowledge)
         current_cell_data = knowledge.cell_data.get(pos, {})
 
+        # -- 0. échange prioritaire --
+        give_action = self._try_give_waste(knowledge)
+        if give_action:
+            return give_action
+        
+
         # 1. Transformer 2 verts → 1 jaune
         if len(carried_wastes) == 2 and all(
             w is not None and w.waste_type == Color.GREEN for w in carried_wastes
         ):
             return Transform(carried_wastes)
+
+        if len(carried_wastes) == 1 and carried_wastes[0] is not None and carried_wastes[0].waste_type == Color.GREEN:
+            # on regarde les messages reçus pour voir si un jaune propose un échange pour le vert qu'on porte
+            for message in self.get_new_messages(): 
+                if message.get_performative() != MessagePerformative.PROPOSE:
+                    
+                    continue
+
+        # regarder les messages reçus : si message PROPOSE d'un jaune pour un vert qu'on porte, 
+        # on ne le dépose pas à la frontière mais on va vers le jaune pour lui proposer le vert
+
 
         # 2. Déposer le jaune à la frontière z1/z2
         if (
@@ -547,6 +568,10 @@ class YellowRobot(Robot):
         pos = knowledge.positions[-1]
         carried_wastes = self._get_current_carried_wastes(knowledge)
         current_cell_data = knowledge.cell_data.get(pos, {})
+
+        give_action = self._try_give_waste(knowledge)
+        if give_action:
+            return give_action
 
         # 1. Transformer 2 jaunes → 1 rouge
         if len(carried_wastes) == 2 and all(
