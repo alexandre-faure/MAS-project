@@ -226,6 +226,7 @@ def WastesCollectionTracker(model: RobotMissionModel):
     ax.set_xlabel("Step")
     ax.set_ylabel("Nombre de déchets sur la grille")
     ax.set_xlim(0, model.max_step)
+    ax.set_xlim(0, model.max_step)
     ax.set_ylim(0)
     ax.set_title("Évolution des déchets par type")
     ax.legend()
