@@ -1,6 +1,7 @@
 """Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026"""
 
 from abc import ABC, abstractmethod
+from random import randint
 from typing import Any
 
 from communication import CommunicatingAgent
@@ -36,8 +37,9 @@ class Knowledge:
         self.visitable_cells: set[tuple[int, int]] = set()
         self.in_grid_cells: set[tuple[int, int]] = set()
         self.known_wastes: set[tuple[int, int]] = set()
-        self.robots_neighborhood: set[str] = set()
-
+        self.robots_neighborhood: set[str] = set() #contains robots objects and not only their names
+        
+        # flag to indicate if the robot should move (used to avoid picking up a waste when it was just dropped)
         # Specific coordinates
         self.min_x_zone: int | None = None
         self.max_x_zone: int | None = None
@@ -105,39 +107,37 @@ class Robot(CommunicatingAgent, ABC):
         self.is_random = robot_behavior == RobotBehavior.RANDOM
         self.carrying: list[Waste] = []
         self.knowledge = Knowledge()
+        self.wait_answer = False
+        self.messages_to_send: list[Message] = []
+        self.drop_object: bool = False
+        self.carried_since = 0
+        self.must_move = False 
         self.nb_exploring_steps = 0
         self.nb_wastes_collected = 0
 
     @property
     def name(self):
-        """Name of the robot"""
         return f"Agent {self.color.value} ({self.unique_id})"
 
     @property
     def zone(self) -> Zone:
-        """Zone of the robot"""
         return COLOR_TO_ZONE[self.color]
 
     @property
     def zone_min_radioactivity(self) -> float:
-        """Minimum radioactivity in the main zone of the robot"""
         return (self.zone.value - 1) / 3
 
     @property
     def max_radioactivity(self) -> float:
-        """Maximum radioactivity the robot can support"""
         return self.zone.value / 3
 
     def is_locked(self, knowledge: Knowledge, max_wait: int = 3) -> bool:
-        """Check if the robot is stuck in a position by waiting several times."""
         if len(knowledge.positions) < max_wait + 1:
             return False
-        last_positions = knowledge.positions[-(max_wait + 1) :]
-        last_positions = knowledge.positions[-(max_wait + 1) :]
+        last_positions = knowledge.positions[-(max_wait + 1):]
         return all(pos == self.pos for pos in last_positions)
 
     def __get_cell_data(self, pos: tuple[int, int]) -> dict:
-        """Get the data of a given cell"""
         cellmates = self.model.grid.get_cell_list_contents([pos])
 
         radioactivity_cell = next(
@@ -150,12 +150,7 @@ class Robot(CommunicatingAgent, ABC):
             a
             for a in cellmates
             if isinstance(a, Waste) and a.waste_type == self.color
-            if isinstance(a, Waste) and a.waste_type == self.color
             #  disposal_pos peut être None, on vérifie avant de comparer
-            and (
-                self.knowledge.disposal_pos is None
-                or a.pos != self.knowledge.disposal_pos
-            )
             and (
                 self.knowledge.disposal_pos is None
                 or a.pos != self.knowledge.disposal_pos
@@ -179,19 +174,12 @@ class Robot(CommunicatingAgent, ABC):
             "wastes": wastes,
             "waste_disposal": waste_disposal,
             "visitable": visitable,
-            "is_lower_zone": radioactivity_cell.radioactivity
-            <= self.zone_min_radioactivity,
+            "is_lower_zone": radioactivity_cell.radioactivity <= self.zone_min_radioactivity,
             "robots": other_robots,
             "is_higher_zone": radioactivity_cell.radioactivity > self.max_radioactivity,
         }
 
     def perceive(self) -> dict:
-        """
-        Perception step of the robot that allows to:
-        - detect objects
-        - analyze presence of other agents
-        - ...
-        """
         neighborhood = self.model.grid.get_neighborhood(
             self.pos, moore=False, include_center=True
         )
@@ -199,8 +187,6 @@ class Robot(CommunicatingAgent, ABC):
         return data_per_cell
 
     def _build_knowledge_message(self) -> dict:
-        """Write the message content containing the knowledge of
-        the robot to share with other robots during communication."""
         return {
             "timestamp": self.knowledge.round,
             "sender_id": self.unique_id,
@@ -218,21 +204,12 @@ class Robot(CommunicatingAgent, ABC):
             ],
         }
 
-    def _broadcast_knowledge(self):
-        """Send a message containing the knowledge of the robot
-        to all other robots of the same color."""
+    def _prepare_broadcast_knowledge(self):
+        """Append one INFORM_REF message to every same-color peer."""
         payload = self._build_knowledge_message()
         same_color_robots = self.model.agents_by_type.get(type(self), [])
         for agent in same_color_robots:
             if agent.unique_id != self.unique_id:
-                self.send_message(
-                    Message(
-                        self.get_name(),
-                        agent.get_name(),
-                        MessagePerformative.INFORM_REF,
-                        payload,
-                    )
-                )
                 self.send_message(
                     Message(
                         self.get_name(),
@@ -249,40 +226,78 @@ class Robot(CommunicatingAgent, ABC):
 
             if message is None:
                 continue
-            if message.get_performative() != MessagePerformative.INFORM_REF:
-                #si demande d'échange, on le traitera dans deliberate 
-                # pour pouvoir répondre en proposant un échange
-                continue
+            performative = message.get_performative()
 
-            payload = message.get_content()
-            if not isinstance(payload, dict):
-                continue
+            # Knowledge broadcast — always process
+            if performative == MessagePerformative.INFORM_REF:
+                payload = message.get_content()
+                if not isinstance(payload, dict):
+                    continue
+                sender_id = payload.get("sender_id")
+                msg_timestamp: int = payload.get("timestamp", -1)
+                known_wastes = payload.get("known_wastes")
 
-            msg_timestamp: int = payload.get("timestamp", -1)
-            known_wastes = payload.get("known_wastes")
-            sender_id = payload.get("sender_id")
+                if isinstance(known_wastes, dict):
+                    for pos_raw, round_seen in known_wastes.items():
+                        pos = tuple(pos_raw) if not isinstance(pos_raw, tuple) else pos_raw
+                        if round_seen is None:
+                            continue
+                        our_round = self.knowledge.last_seen.get(pos, -1)
+                        if round_seen > our_round:
+                            self.knowledge.last_seen[pos] = round_seen
+                            self.knowledge.known_wastes.add(pos)
 
-            if isinstance(known_wastes, dict):
-                for pos_raw, round_seen in known_wastes.items():
+                if sender_id is not None:
+                    carried = payload.get("carried_wastes")
+                    self.knowledge.data[f"carried_by_{sender_id}"] = {
+                        "wastes": carried if isinstance(carried, list) else [],
+                        "timestamp": msg_timestamp,
+                    }
 
+            # Someone is offering us a waste object
+            elif performative == MessagePerformative.PROPOSE_TO_GIVE:
+                payload = message.get_content()
+                sender_id = payload.get("sender_id") if isinstance(payload, dict) else None
+                proposed_waste: Waste = payload.get("proposed_waste")
 
-                    pos = tuple(pos_raw) if not isinstance(pos_raw, tuple) else pos_raw
-                    if round_seen is None:
-                        continue
-                    our_round = self.knowledge.last_seen.get(pos, -1)
-                    if round_seen > our_round:
-                        self.knowledge.last_seen[pos] = round_seen
-                        self.knowledge.known_wastes.add(pos)
+                # Accept if the proposed waste is of our color and we have room
+                if (
+                    proposed_waste is not None
+                    and proposed_waste.waste_type == self.color
+                    and len(self.carrying) < 2
+                ):
+                    self.messages_to_send.append(
+                        Message(
+                            self.get_name(),
+                            message.get_exp(),
+                            MessagePerformative.ACCEPT_EXCHANGE,
+                            {"accepted_waste": proposed_waste.waste_type.value,
+                             "sender_id": self.unique_id},
+                        )
+                    )
+                    self.wait_answer = False
+                else:
+                    self.messages_to_send.append(
+                        Message(
+                            self.get_name(),
+                            message.get_exp(),
+                            MessagePerformative.REJECT_EXCHANGE,
+                            {"rejected_waste": proposed_waste,
+                             "sender_id": self.unique_id},
+                        )
+                    )
+                    self.wait_answer = False
 
-            if sender_id is not None:
-                carried = payload.get("carried_wastes")
-                self.knowledge.data[f"carried_by_{sender_id}"] = {
-                    "wastes": carried if isinstance(carried, list) else [],
-                    "timestamp": msg_timestamp,
-                }
+            # Our outgoing proposal was accepted → we should drop the waste
+            elif performative == MessagePerformative.ACCEPT_EXCHANGE:
+                self.drop_object = True
+                self.wait_answer = False
+
+            # Our outgoing proposal was rejected → stop waiting, try elsewhere
+            elif performative == MessagePerformative.REJECT_EXCHANGE:
+                self.wait_answer = False
 
     def update_knowledge(self, percepts: dict):
-        """Update the knowledge of the robot based on its perception."""
         cur_pos = self.pos
         self.knowledge.robots_neighborhood.clear()
         self.knowledge.round += 1
@@ -326,37 +341,43 @@ class Robot(CommunicatingAgent, ABC):
                 ):
                     self.knowledge.max_x_zone = cur_pos[0]
 
+            # Track neighbouring robots (for exchange proposals)
+            for robot in data.get("robots", []):
+                if robot is not self:
+                    self.knowledge.robots_neighborhood.add(robot)
 
     @abstractmethod
     def deliberate(self, knowledge: Knowledge) -> Action:
-        """
-        Deliberation step of the robot.
-        It returns one or several actions to execute.
-        """
+        pass
 
     def step_agent(self):
-        """Execute one step of the agent"""
         self._process_incoming_messages()
         percepts = self.perceive()
         self.update_knowledge(percepts)
         action = self.deliberate(self.knowledge)
         self.model.do(self, action)
-        self._broadcast_knowledge()
 
-    def _discover_randomly(
-        self, knowledge: Knowledge, axis: int | None = None, in_area: bool = False
-    ) -> Move:
-        """
-        Move randomly towards a visitable cell not recently visited.
-        Axis:
-        - 0 : prefer horizontal moves (east-west)
-        - 1 : prefer vertical moves (north-south)
-        - None: no axis preference
-        In area:
-        - True: only consider cells of the color of the robot
-        - False: consider all cells
-        """
+    # ------------------------------------------------------------------ helpers
 
+    def _find_neighbour_of_color(self, color: Color) -> "Robot | None":
+        """Return the first neighbouring robot of the given color, or None."""
+        for data in self.knowledge.cell_data.values():
+            for robot in data.get("robots", []):
+                if robot is not self and robot.color == color:
+                    return robot
+        return None
+
+
+    def _prepare_exchange_proposal(self, waste: Waste, receiver_name: str) -> Message:
+        """Prepare a PROPOSE_TO_GIVE message for a specific receiver (by agent name)."""
+        return Message(
+            self.get_name(),
+            receiver_name,
+            MessagePerformative.PROPOSE_TO_GIVE,
+            {"proposed_waste": waste, "sender_id": self.unique_id},
+        )
+
+    def _discover_randomly(self, knowledge: Knowledge, axis: int | None = None) -> Move:
         if not knowledge.positions:
             return Wait()
 
@@ -393,10 +414,7 @@ class Robot(CommunicatingAgent, ABC):
         return Move(direction=next_direction)
         return Move(direction=next_direction)
 
-    def _move_in_direction(
-        self, direction: tuple[int, int], knowledge: Knowledge
-    ) -> Action:
-
+    def _move_in_direction(self, direction: tuple[int, int], knowledge: Knowledge) -> Action:
         if not knowledge.positions:
             return Wait()
 
@@ -419,21 +437,15 @@ class Robot(CommunicatingAgent, ABC):
         return self._discover_randomly(knowledge)
 
     def _move_randomly(self, knowledge: Knowledge) -> Move:
-        """Helper method to move in a random direction."""
         visitable_cells = knowledge.visitable_cells
         if not visitable_cells:
             return Wait()
         next_pos = self.model.random.choice(list(visitable_cells))
         return Move(position=next_pos)
 
-    def _move_towards(
-        self, target_pos: tuple[int | None, int | None], knowledge: Knowledge
-    ) -> Action:
-        """Helper method to move towards a target position."""
-
+    def _move_towards(self, target_pos: tuple[int | None, int | None], knowledge: Knowledge) -> Action:
         if not knowledge.positions:
             return Wait()
-
         if target_pos is None:
             return Wait()
 
@@ -456,14 +468,10 @@ class Robot(CommunicatingAgent, ABC):
         return Move(position=self.model.random.choice(best_next))
 
     def _go_to_closest_waste(self, knowledge: Knowledge) -> Action:
-
         if not knowledge.positions:
             return Wait()
 
         cur_pos = knowledge.positions[-1]
-        #  on filtre les positions de known_wastes dont on n'a pas de cell_data
-        # (connues par communication mais jamais vues directement) pour éviter des
-        # incohérences, tout en gardant les positions valides
         valid_wastes = [pos for pos in knowledge.known_wastes if pos is not None]
         if not valid_wastes:
             return self._discover_randomly(knowledge)
@@ -476,8 +484,6 @@ class Robot(CommunicatingAgent, ABC):
         return self._move_towards(closest_waste_pos, knowledge)
 
     def _get_current_carried_wastes(self, knowledge: Knowledge) -> list[Waste]:
-        """Safe accessor for the current carried wastes."""
-        #  carried_wastes peut être vide au premier tour
         if not knowledge.carried_wastes:
             return []
         return knowledge.carried_wastes[-1]
@@ -489,7 +495,15 @@ class Robot(CommunicatingAgent, ABC):
 
 
 class GreenRobot(Robot):
-    """Green robot in zone 1."""
+    """Green robot in zone 1.
+    Priority 0a: flush outgoing messages (replies built last step)
+    Priority 0b: drop waste when peer accepted our proposal
+    Priority 0c: wait for the peer's answer to our proposal (while still broadcasting
+    knowledge)
+    Priority 1: transform 2 green wastes → 1 yellow
+    Priority 2: deposit yellow waste at z1/z2 boundary
+    Priority 3: propose exchange if carrying waste for too long
+    Priority 4: pick up / explore / broadcast"""
 
     def __init__(self, model: Model, is_random: bool = False, has_memory: bool = True):
         super().__init__(model, Color.GREEN)
@@ -497,7 +511,6 @@ class GreenRobot(Robot):
         self.has_memory = has_memory
 
     def deliberate(self, knowledge: Knowledge) -> Action:
-        # utilisation du helper sécurisé pour carried_wastes
         if not knowledge.positions:
             return Wait()
 
@@ -505,56 +518,115 @@ class GreenRobot(Robot):
         carried_wastes = self._get_current_carried_wastes(knowledge)
         current_cell_data = knowledge.cell_data.get(pos, {})
 
-        # -- 0. échange prioritaire --
-        give_action = self._try_give_waste(knowledge)
-        if give_action:
-            return give_action
-        
+        # Maintain carried_since: only count steps where we are actually carrying something
+        if carried_wastes:
+            self.carried_since += 1
+        else:
+            self.carried_since = 0
 
-        # 1. Transformer 2 verts → 1 jaune
+        # ── Priority 0a: flush outgoing messages (replies built last step) ────
+        # _process_incoming_messages() may have appended ACCEPT/REJECT replies;
+        # send them before any other action so the peer is never left waiting.
+        if self.messages_to_send:
+            msgs = list(self.messages_to_send)
+            self.messages_to_send.clear()
+            return SendMessages(msgs)
+
+        # ── Priority 0b: drop waste when the peer accepted our proposal ───────
+        # drop_object is set by _process_incoming_messages() upon ACCEPT_EXCHANGE.
+        if self.drop_object and carried_wastes:
+            waste_to_drop = next(
+                (w for w in carried_wastes if w is not None and w.waste_type == self.color),
+                None,
+            )
+            if waste_to_drop is not None:
+                self.drop_object = False
+                self.carried_since = 0
+                return PutDown(waste_to_drop)
+
+        # ── Priority 0c: wait for the peer's answer to our proposal ──────────
+        # While waiting we still broadcast knowledge so peers stay informed,
+        # then return SendMessages. If there is nothing to send (no peers),
+        # fall through to normal logic.
+        if self.wait_answer:
+            self._prepare_broadcast_knowledge()
+            self.wait_answer = False
+            if self.messages_to_send:
+                msgs = list(self.messages_to_send)
+                self.messages_to_send.clear()
+                return SendMessages(msgs)
+            # No peers → give up waiting and continue
+            
+
+        # ── Priority 1: transform 2 green wastes → 1 yellow ─────────────────
         if len(carried_wastes) == 2 and all(
             w is not None and w.waste_type == Color.GREEN for w in carried_wastes
         ):
             return Transform(carried_wastes)
 
-        if len(carried_wastes) == 1 and carried_wastes[0] is not None and carried_wastes[0].waste_type == Color.GREEN:
-            # on regarde les messages reçus pour voir si un jaune propose un échange pour le vert qu'on porte
-            for message in self.get_new_messages(): 
-                if message.get_performative() != MessagePerformative.PROPOSE:
-                    
-                    continue
-
-        # regarder les messages reçus : si message PROPOSE d'un jaune pour un vert qu'on porte, 
-        # on ne le dépose pas à la frontière mais on va vers le jaune pour lui proposer le vert
-
-
-        # 2. Déposer le jaune à la frontière z1/z2
+        # ── Priority 2: deposit yellow waste at z1/z2 boundary ───────────────
         if (
             len(carried_wastes) == 1
             and carried_wastes[0] is not None
             and carried_wastes[0].waste_type == Color.YELLOW
         ):
             if knowledge.max_x_zone is not None and pos[0] == knowledge.max_x_zone:
+                self.carried_since = 0
                 return PutDown(carried_wastes[0])
             return self._move_in_direction((1, 0), knowledge)
 
-        # 3. Ramasser un déchet vert sur la cellule
+        # ── Priority 3: propose exchange if carrying waste for too long ───────
+        # Only propose when not already waiting and there is a same-color neighbour.
+        if carried_wastes and self.carried_since > 10 and not self.wait_answer and not self.must_move:
+            neighbour = self._find_neighbour_of_color(Color.GREEN)
+            if neighbour is not None:
+                self.messages_to_send.append(
+                    self._prepare_exchange_proposal(carried_wastes[0], neighbour.get_name())
+                )
+                self.wait_answer = True
+                msgs = list(self.messages_to_send)
+                self.messages_to_send.clear()
+                return SendMessages(msgs)
+            else :
+                self.must_move = True
+                 # if we are carrying something for a long time but have no neighbour to exchange with, we should move to try to find someone to exchange with or a better position to drop the waste
+                return PutDown(carried_wastes[0]) 
+            # if we have no neighbour to exchange with, just drop the waste and try again (we might be in a better position next step)
+
+        # ── Priority 4:pick up / explore ───────────
+        epsilon = 0.01
+        if randint(0, 100) < epsilon * 100: #broacast knowledge with some probability even if we have something else to do, to increase information flow in the system
+            self._prepare_broadcast_knowledge()
+            return SendMessages(list(self.messages_to_send)) if self.messages_to_send else Wait()
+        
+        # Pick up a green waste on the current cell
         green_wastes = current_cell_data.get("wastes", [])
         if green_wastes and len(carried_wastes) < 2:
             return self.pick_up(green_wastes[0])
 
-        # 4. Aller vers le déchet vert connu le plus proche
+        # Move towards the nearest known green waste
         if self.has_memory and knowledge.known_wastes:
             return self._go_to_closest_waste(knowledge)
 
-        # 5. Explorer aléatoirement dans z1
         if self.is_random:
             return self._move_randomly(knowledge)
         return self._discover_randomly(knowledge)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  YellowRobot
+# ══════════════════════════════════════════════════════════════════════════════
+
 class YellowRobot(Robot):
-    """Yellow robot in zone 2."""
+    """Yellow robot in zone 2.
+        Prioririty 0a: flus outgoing messages
+        Priotity 0b: drop waste when peer accepted our proposal
+        Priority 0c: wait for answer to our proposal (while still broadcasting knowledge)
+        Priority 1: transform 2 yellow wastes → 1 red
+        Priority 2: deposit red waste at z2/z3 boundary
+        Priority 3: propose exchange if carrying too long
+        Priority 4: pick up / explore / broadcast
+        """
 
     def __init__(self, model: Model, is_random: bool = False, has_memory: bool = True):
         super().__init__(model, Color.YELLOW)
@@ -569,49 +641,102 @@ class YellowRobot(Robot):
         carried_wastes = self._get_current_carried_wastes(knowledge)
         current_cell_data = knowledge.cell_data.get(pos, {})
 
-        give_action = self._try_give_waste(knowledge)
-        if give_action:
-            return give_action
+        if carried_wastes:
+            self.carried_since += 1
+        else:
+            self.carried_since = 0
 
-        # 1. Transformer 2 jaunes → 1 rouge
+        # ── Priority 0a: flush outgoing messages ─────────────────────────────
+        if self.messages_to_send:
+            msgs = list(self.messages_to_send)
+            self.messages_to_send.clear()
+            return SendMessages(msgs)
+
+        # ── Priority 0b: drop waste when peer accepted our proposal ──────────
+        if self.drop_object and carried_wastes:
+            waste_to_drop = next(
+                (w for w in carried_wastes if w is not None and w.waste_type == self.color),
+                None,
+            )
+            if waste_to_drop is not None:
+                self.drop_object = False
+                self.carried_since = 0
+                return PutDown(waste_to_drop)
+
+        # ── Priority 0c: wait for answer to our proposal ─────────────────────
+        if self.wait_answer:
+            self._prepare_broadcast_knowledge()
+            self.wait_answer = False
+            if self.messages_to_send:
+                msgs = list(self.messages_to_send)
+                self.messages_to_send.clear()
+                return SendMessages(msgs)
+            
+
+        # ── Priority 1: transform 2 yellow wastes → 1 red ────────────────────
         if len(carried_wastes) == 2 and all(
             w is not None and w.waste_type == Color.YELLOW for w in carried_wastes
         ):
             return Transform(carried_wastes)
 
-        # 2. Déposer le rouge à la frontière z2/z3
+        # ── Priority 2: deposit red waste at z2/z3 boundary ───────────────
         if (
             len(carried_wastes) == 1
             and carried_wastes[0] is not None
             and carried_wastes[0].waste_type == Color.RED
         ):
             if knowledge.max_x_zone is not None and pos[0] == knowledge.max_x_zone:
+                self.carried_since = 0
                 self.knowledge.must_explore = Robot.EXPLORE_DURATION + 1
                 return PutDown(carried_wastes[0])
             return self._move_in_direction((1, 0), knowledge)
 
-        # 3. Ramasser un déchet jaune
+
+        # ── Priority 3: propose exchange if carrying too long ─────────────────
+        if carried_wastes and self.carried_since > 10 and not self.wait_answer and not self.must_move:
+            neighbour = self._find_neighbour_of_color(Color.YELLOW)
+            if neighbour is not None:
+                self.messages_to_send.append(
+                    self._prepare_exchange_proposal(carried_wastes[0], neighbour.get_name())
+                )
+                self.wait_answer = True
+                msgs = list(self.messages_to_send)
+                self.messages_to_send.clear()
+                return SendMessages(msgs)
+            else :
+                self.must_move = True
+                return PutDown(carried_wastes[0])
+
+        # ── Priority 4: pick up /  explore / broadcast─────────────────────────
+        epsilon = 0.01
+        if randint(0, 100) < epsilon * 100: #broacast knowledge with some probability even if we have something else to do, to increase information flow in the system
+            self._prepare_broadcast_knowledge()
+            return SendMessages(list(self.messages_to_send)) if self.messages_to_send else Wait()
+        
+
         yellow_wastes = current_cell_data.get("wastes", [])
         if yellow_wastes and len(carried_wastes) < 2:
             return self.pick_up(yellow_wastes[0])
 
-        # 4. Aller vers le déchet jaune connu le plus proche
+        self.must_move = False
+         # reset must_move flag once we have moved or picked up a waste
         if self.has_memory and knowledge.known_wastes:
             return self._go_to_closest_waste(knowledge)
 
-        # 5. Si le robot est naïf, il explore aléatoirement
         if self.is_random:
             return self._move_randomly(knowledge)
 
-        # 6. Inspecter la frontière pour être prêt à récupérer les déchets jaunes déposés par les verts
         if knowledge.min_x_zone is None:
             return self._move_in_direction((-1, 0), knowledge)
         if not knowledge.must_explore and pos[0] != knowledge.min_x_zone - 1:
             return self._move_towards((knowledge.min_x_zone - 1, None), knowledge)
 
-        # 7. Explorer aléatoirement à la frontière
         return self._discover_randomly(knowledge, axis=1)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  RedRobot
+# ══════════════════════════════════════════════════════════════════════════════
 
 class RedRobot(Robot):
     """Red robot in zone 3."""
@@ -622,6 +747,20 @@ class RedRobot(Robot):
         self.has_memory = has_memory
 
     def deliberate(self, knowledge: Knowledge) -> Action:
+        """
+        Priorities :
+        1: find disposal zone (if not known)
+        0a: flush outgoing messages (replies to proposals)
+        0b: drop waste if peer accepted our proposal
+        0c: wait for answer to our proposal (while still broadcasting knowledge)
+        
+        2: deposit at disposal zone if carrying
+        4: pick up red waste on current cell
+        3: carry red waste to disposal zone if we know it   
+        5: go to nearest known red waste
+        6: broadcast knowledge and explore
+        """
+        
         if not knowledge.positions:
             return Wait()
 
@@ -630,39 +769,93 @@ class RedRobot(Robot):
         current_cell_data = knowledge.cell_data.get(pos, {})
         disposal_pos = knowledge.disposal_pos
 
-        # 1. Trouver la zone de dépôt si on ne la connaît pas encore
+        if carried_wastes:
+            self.carried_since += 1
+        else:
+            self.carried_since = 0
+        
+        # ── Priority 1: find disposal zone ───────────────────────────────────
         if not self.is_random and disposal_pos is None:
             if (pos[0] + 1, pos[1]) in knowledge.in_grid_cells:
                 return self._move_in_direction((1, 0), knowledge)
             return self._discover_randomly(knowledge, axis=1)
+        
+        # ── Priority 0a: flush outgoing messages ─────────────────────────────
+        if self.messages_to_send:
+            msgs = list(self.messages_to_send)
+            self.messages_to_send.clear()
+            return SendMessages(msgs)
 
-        # 3. Déposer si on est sur la zone de dépôt
+        # ── Priority 0b: drop waste when peer accepted our proposal ──────────
+        if self.drop_object and carried_wastes:
+            waste_to_drop = next(
+                (w for w in carried_wastes if w is not None and w.waste_type == self.color),
+                None,
+            )
+            if waste_to_drop is not None:
+                self.drop_object = False
+                self.carried_since = 0
+                return PutDown(waste_to_drop)
+
+        # ── Priority 0c: wait for answer ─────────────────────────────────────
+        if self.wait_answer:
+            self.wait_answer = False
+            self._prepare_broadcast_knowledge()
+            if self.messages_to_send:
+                msgs = list(self.messages_to_send)
+                self.messages_to_send.clear()
+                return SendMessages(msgs)
+            
+        # ── Priority 2: deposit at disposal zone ─────────────────────────────
         if carried_wastes and pos == disposal_pos:
+            self.carried_since = 0
             self.knowledge.must_explore = Robot.EXPLORE_DURATION + 1
             return PutDown(carried_wastes[0])
-
-        # 3. Si on porte un rouge, naviguer vers la zone de dépôt
-        if carried_wastes and self.has_memory and knowledge.disposal_pos is not None:
-            return self._move_towards(knowledge.disposal_pos, knowledge)
-
-        # 4. Ramasser un déchet rouge si on n'en porte pas déjà un
-        red_wastes = current_cell_data["wastes"]
-        if red_wastes and not self.carrying:
+        
+        # ── Priority 4: pick up red waste ─────────────────────────────────────
+        # if the robot is on a cell with red wastes, it picks up one
+        red_wastes = current_cell_data.get("wastes", [])
+        if red_wastes:
             return PickUp(red_wastes[0])
 
-        # 5. Aller vers le déchet rouge connu le plus proche
+
+        # ── Priority 3: carry red waste to disposal zone ──────────────────────
+        if carried_wastes and self.has_memory and knowledge.disposal_pos is not None:
+            self._prepare_broadcast_knowledge()
+            if self.messages_to_send:
+                msgs = list(self.messages_to_send)
+                self.messages_to_send.clear()
+                return SendMessages(msgs)
+            return self._move_towards(knowledge.disposal_pos, knowledge)
+
+
+
+        # ── Priority 5: go to nearest known red waste ─────────────────────────
         if self.has_memory and knowledge.known_wastes:
+            self._prepare_broadcast_knowledge()
+            if self.messages_to_send:
+                msgs = list(self.messages_to_send)
+                self.messages_to_send.clear()
+                return SendMessages(msgs)
             return self._go_to_closest_waste(knowledge)
 
-        # 6. Si le robot est naïf, il explore aléatoirement
+        # ── Priority 6: broadcast and explore ────────────────────────────────
+        epsilon = 0.01
+        if randint(0, 100) < epsilon * 100: #broacast knowledge with some probability even if we have something else to do, to increase information flow in the system
+            self._prepare_broadcast_knowledge()
+            return SendMessages(list(self.messages_to_send)) if self.messages_to_send else Wait()
+        
+        if self.messages_to_send:
+            msgs = list(self.messages_to_send)
+            self.messages_to_send.clear()
+            return SendMessages(msgs)
+
         if self.is_random:
             return self._move_randomly(knowledge)
 
-        # 7. Inspecter la frontière pour être prêt à récupérer les déchets rouges déposés par les jaunes
         if knowledge.min_x_zone is None:
             return self._move_in_direction((-1, 0), knowledge)
         if not knowledge.must_explore and pos[0] != knowledge.min_x_zone - 1:
             return self._move_towards((knowledge.min_x_zone - 1, None), knowledge)
 
-        # 8. Explorer aléatoirement à la frontière
         return self._discover_randomly(knowledge, axis=1)

@@ -257,36 +257,15 @@ class RobotMissionModel(Model):
                     waste.set_processed(self.steps)
             agent.carrying.clear()
 
-        elif isinstance(action, Give):
-            waste = action.waste
-            receiver_id = action.receiver_id
-
-            if waste not in agent.carrying:
-                return
-
-            # trouver le robot cible
-            neighbors = self.grid.get_neighborhood(agent.pos, moore=False, include_center=False)
-            neighbor_cells = self.grid.get_cell_list_contents(neighbors)
-
-            receivers = [
-                r for r in neighbor_cells
-                if isinstance(r, Robot) and r.unique_id == receiver_id
-            ]
-
-            if not receivers:
-                return
-
-            receiver = receivers[0]
-
-            # transfert
-            agent.carrying.remove(waste)
-            receiver.carrying.append(waste)
+        elif isinstance(action, SendMessages):
+            for msg in action.messages:
+                agent.send_message(msg)
         else:
             raise ValueError(
                 f"Unknown action type: {action.action_type} for agent {agent}"
             )
 
-        return
+
 
     def nb_wastes_by_color(self, waste_type: Color) -> int:
         """

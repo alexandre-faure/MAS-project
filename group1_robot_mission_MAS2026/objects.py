@@ -77,9 +77,3 @@ class Transform(Action):
     def __init__(self, wastes: list[Waste]):
         super().__init__(ActionType.TRANSFORM)
         self.wastes = wastes
-
-class Give(Action):
-    def __init__(self, waste: Waste, receiver_id: int):
-        super().__init__(ActionType.GIVE)
-        self.waste = waste
-        self.receiver_id = receiver_id

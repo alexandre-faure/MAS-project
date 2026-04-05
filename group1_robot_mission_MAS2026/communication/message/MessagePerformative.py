@@ -7,8 +7,12 @@ class MessagePerformative(Enum):
     """MessagePerformative enum class.
     Enumeration containing the possible message performative.
     """
-    PROPOSE = 101
-    ACCEPT = 102
+    PROPOSE_TO_GIVE = 101.1
+    PROPOSE_TO_TAKE = 101.2   
+    
+    ACCEPT_EXCHANGE = 102.1
+    REJECT_EXCHANGE = 103.1
+
     COMMIT = 103
     ASK_WHY = 104
     ARGUE = 105
