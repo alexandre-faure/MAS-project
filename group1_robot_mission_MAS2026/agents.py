@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from random import randint
 from typing import Any
 
+from matplotlib.colors import same_color
+
 from communication import CommunicatingAgent
 from communication.message.Message import Message
 from communication.message.MessagePerformative import MessagePerformative
@@ -517,6 +519,7 @@ class GreenRobot(Robot):
         pos = knowledge.positions[-1]
         carried_wastes = self._get_current_carried_wastes(knowledge)
         current_cell_data = knowledge.cell_data.get(pos, {})
+        same_color_carried_wastes = [w for w in carried_wastes if w is not None and w.waste_type == self.color]
 
         # Maintain carried_since: only count steps where we are actually carrying something
         if carried_wastes:
@@ -577,7 +580,7 @@ class GreenRobot(Robot):
 
         # ── Priority 3: propose exchange if carrying waste for too long ───────
         # Only propose when not already waiting and there is a same-color neighbour.
-        if carried_wastes and self.carried_since > 10 and not self.wait_answer and not self.must_move:
+        if same_color_carried_wastes and self.carried_since > 10 and not self.wait_answer and not self.must_move:
             neighbour = self._find_neighbour_of_color(Color.GREEN)
             if neighbour is not None:
                 self.messages_to_send.append(
@@ -640,6 +643,7 @@ class YellowRobot(Robot):
         pos = knowledge.positions[-1]
         carried_wastes = self._get_current_carried_wastes(knowledge)
         current_cell_data = knowledge.cell_data.get(pos, {})
+        same_color_carried_wastes = [w for w in carried_wastes if w is not None and w.waste_type == self.color]
 
         if carried_wastes:
             self.carried_since += 1
@@ -693,7 +697,7 @@ class YellowRobot(Robot):
 
 
         # ── Priority 3: propose exchange if carrying too long ─────────────────
-        if carried_wastes and self.carried_since > 10 and not self.wait_answer and not self.must_move:
+        if same_color_carried_wastes and self.carried_since > 10 and not self.wait_answer and not self.must_move:
             neighbour = self._find_neighbour_of_color(Color.YELLOW)
             if neighbour is not None:
                 self.messages_to_send.append(
