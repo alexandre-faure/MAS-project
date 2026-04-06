@@ -821,34 +821,25 @@ class RedRobot(Robot):
         red_wastes = current_cell_data.get("wastes", [])
         if red_wastes:
             return PickUp(red_wastes[0])
+        
 
-
-        # ── Priority 3: carry red waste to disposal zone ──────────────────────
-        if carried_wastes and self.has_memory and knowledge.disposal_pos is not None:
-            self._prepare_broadcast_knowledge()
-            if self.messages_to_send:
-                msgs = list(self.messages_to_send)
-                self.messages_to_send.clear()
-                return SendMessages(msgs)
-            return self._move_towards(knowledge.disposal_pos, knowledge)
-
-
-
-        # ── Priority 5: go to nearest known red waste ─────────────────────────
-        if self.has_memory and knowledge.known_wastes:
-            self._prepare_broadcast_knowledge()
-            if self.messages_to_send:
-                msgs = list(self.messages_to_send)
-                self.messages_to_send.clear()
-                return SendMessages(msgs)
-            return self._go_to_closest_waste(knowledge)
-
-        # ── Priority 6: broadcast and explore ────────────────────────────────
+        # ── Priority 5 : broadcast knowledge with some probability ─────────────────────────────────────
+        # even if we have something else to do, to increase information flow in the system
         epsilon = 0.01
         if randint(0, 100) < epsilon * 100: #broacast knowledge with some probability even if we have something else to do, to increase information flow in the system
             self._prepare_broadcast_knowledge()
             return SendMessages(list(self.messages_to_send)) if self.messages_to_send else Wait()
         
+        # ── Priority 3: carry red waste to disposal zone ──────────────────────
+        if carried_wastes and self.has_memory and knowledge.disposal_pos is not None:
+            return self._move_towards(knowledge.disposal_pos, knowledge)
+
+        # ── Priority 5: go to nearest known red waste ─────────────────────────
+        if self.has_memory and knowledge.known_wastes:
+            return self._go_to_closest_waste(knowledge)
+
+        # ── Priority 6: broadcast and explore ────────────────────────────────
+
         if self.messages_to_send:
             msgs = list(self.messages_to_send)
             self.messages_to_send.clear()
