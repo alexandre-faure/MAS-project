@@ -36,6 +36,24 @@ COLOR_TO_ZONE = {
 }
 
 
+class RobotBehavior(Enum):
+    RANDOM = "random"
+    MEMORY = "memory"
+    COMMUNICATION = "communication"
+
+    @staticmethod
+    def from_string(s: str) -> "RobotBehavior":
+        s = s.lower()
+        if s == "random" or s == "aléatoire":
+            return RobotBehavior.RANDOM
+        elif s == "memory" or s == "mémoire":
+            return RobotBehavior.MEMORY
+        elif s == "communication":
+            return RobotBehavior.COMMUNICATION
+        else:
+            raise ValueError(f"Unknown behavior: {s}")
+
+
 class ActionType(Enum):
     WAIT = "wait"
     MOVE = "move"
@@ -69,3 +87,21 @@ class Move(Action):
 class Wait(Action):
     def __init__(self):
         super().__init__(ActionType.WAIT)
+
+
+class PickUp(Action):
+    def __init__(self, waste):
+        super().__init__(ActionType.PICK_UP)
+        self.waste = waste
+
+
+class PutDown(Action):
+    def __init__(self, waste):
+        super().__init__(ActionType.PUT_DOWN)
+        self.waste = waste
+
+
+class Transform(Action):
+    def __init__(self, wastes: list):
+        super().__init__(ActionType.TRANSFORM)
+        self.wastes = wastes

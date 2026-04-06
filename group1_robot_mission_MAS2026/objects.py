@@ -1,7 +1,7 @@
 """Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026"""
 
 from mesa import Agent, Model
-from utils import ZONE_TO_RADIO_LEVEL, Action, ActionType, Color, Zone
+from utils import ZONE_TO_RADIO_LEVEL, Color, Zone
 
 
 class Radioactivity(Agent):
@@ -45,22 +45,3 @@ class Waste(Agent):
 
     def get_name(self):
         return f"Waste_{self.unique_id}"
-
-
-### Actions related to objects
-class PickUp(Action):
-    def __init__(self, waste: Waste):
-        super().__init__(ActionType.PICK_UP)
-        self.waste = waste
-
-
-class PutDown(Action):
-    def __init__(self, waste: Waste):
-        super().__init__(ActionType.PUT_DOWN)
-        self.waste = waste
-
-
-class Transform(Action):
-    def __init__(self, wastes: list[Waste]):
-        super().__init__(ActionType.TRANSFORM)
-        self.wastes = wastes

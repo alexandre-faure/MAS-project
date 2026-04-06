@@ -1,5 +1,6 @@
 """Group 1: Sarah Lamik, Ylias Larbi, Alexandre Faure -- creation date: 16/03/2026"""
 
+from enum import Enum
 from itertools import product
 
 import solara
@@ -9,10 +10,36 @@ from mesa import Model
 from mesa.datacollection import DataCollector
 from mesa.space import MultiGrid
 from metrics import exploration_ratio, load_balancing, ratio_collected, waste_lifespan
-from objects import PickUp, PutDown, Radioactivity, Transform, Waste, WasteDisposalZone
-from utils import Action, Color, Move, Wait, Zone
+from objects import Radioactivity, Waste, WasteDisposalZone
+from utils import (
+    COLORS,
+    Action,
+    Color,
+    Move,
+    PickUp,
+    PutDown,
+    RobotBehavior,
+    Transform,
+    Wait,
+    Zone,
+)
 
 update_counter = solara.reactive(0)
+
+
+DEFAULT_PARAMS = dict(
+    width=18,
+    height=14,
+    n_green_robots=4,
+    n_yellow_robots=3,
+    n_red_robots=2,
+    n_green_wastes=20,
+    n_yellow_wastes=10,
+    n_red_wastes=5,
+    max_step=200,
+    seed=None,
+    robots_behavior="Communication",
+)
 
 
 class RobotMissionModel(Model):
@@ -24,21 +51,20 @@ class RobotMissionModel(Model):
 
     def __init__(
         self,
-        width: int = 18,
-        height: int = 14,
-        n_green_robots: int = 4,
-        n_yellow_robots: int = 3,
-        n_red_robots: int = 2,
-        n_green_wastes: int = 20,
-        seed: int = None,
-        max_step: int = 200,
-        green_robot_is_random: bool = False,
-        green_robot_has_memory: bool = True,
-        yellow_robot_is_random: bool = False,
-        yellow_robot_has_memory: bool = True,
-        red_robot_is_random: bool = False,
-        red_robot_has_memory: bool = True,
+        width: int = DEFAULT_PARAMS["width"],
+        height: int = DEFAULT_PARAMS["height"],
+        n_green_robots: int = DEFAULT_PARAMS["n_green_robots"],
+        n_yellow_robots: int = DEFAULT_PARAMS["n_yellow_robots"],
+        n_red_robots: int = DEFAULT_PARAMS["n_red_robots"],
+        n_green_wastes: int = DEFAULT_PARAMS["n_green_wastes"],
+        n_yellow_wastes: int = DEFAULT_PARAMS["n_yellow_wastes"],
+        n_red_wastes: int = DEFAULT_PARAMS["n_red_wastes"],
+        seed: int | str | None = DEFAULT_PARAMS["seed"],
+        max_step: int = DEFAULT_PARAMS["max_step"],
+        robots_behavior: str = DEFAULT_PARAMS["robots_behavior"],
     ):
+        if isinstance(seed, str) and not seed.isdigit():
+            seed = None
         super().__init__(seed=seed)
 
         assert width % 3 == 0, "Width must be divisible by 3 for equal zones"
@@ -51,25 +77,21 @@ class RobotMissionModel(Model):
 
         # Construction du monde
         assert (
-            n_green_wastes <= self.zone_width * self.height
-        ), "Too many wastes for zone 1"
+            max(n_green_wastes, n_yellow_wastes, n_red_wastes)
+            <= self.zone_width * self.height
+        ), f"Too many wastes for the zone size, don't exceed {self.zone_width * self.height} wastes for each color"
 
         self._place_radioactivity()
         self.waste_disposal_pos = self._place_waste_disposal()
         self.n_green_wastes = n_green_wastes
-        self._place_initial_wastes(n_green_wastes)
+        self.n_yellow_wastes = n_yellow_wastes
+        self.n_red_wastes = n_red_wastes
+        self._place_initial_wastes(n_green_wastes, n_yellow_wastes, n_red_wastes)
         MessageService.reset()
         self.message_service = MessageService(self)
+        robots_behavior = RobotBehavior.from_string(robots_behavior)
         self._place_robots(
-            n_green_robots,
-            n_yellow_robots,
-            n_red_robots,
-            green_robot_is_random,
-            green_robot_has_memory,
-            yellow_robot_is_random,
-            yellow_robot_has_memory,
-            red_robot_is_random,
-            red_robot_has_memory,
+            n_green_robots, n_yellow_robots, n_red_robots, robots_behavior
         )
 
         # Collecte de données
@@ -99,24 +121,18 @@ class RobotMissionModel(Model):
         self.grid.place_agent(WasteDisposalZone(self), disposal_pos)
         return disposal_pos
 
-    def _place_initial_wastes(self, n: int):
+    def _place_initial_wastes(self, n_green: int, n_yellow: int, n_red: int):
         """Déchets verts initiaux uniquement dans z1."""
-        possible_positions = product(range(self.zone_width), range(self.height))
-        waste_positions = self.random.sample(list(possible_positions), n)
-        for x, y in waste_positions:
-            self.grid.place_agent(Waste(self, Color.GREEN), (x, y))
+        possible_positions = list(product(range(self.zone_width), range(self.height)))
+        for i, n in enumerate([n_green, n_yellow, n_red]):
+            waste_positions = self.random.sample(possible_positions, n)
+            for x, y in waste_positions:
+                self.grid.place_agent(
+                    Waste(self, COLORS[i]), (x + i * self.zone_width, y)
+                )
 
     def _place_robots(
-        self,
-        n_green: int,
-        n_yellow: int,
-        n_red: int,
-        green_robot_is_random: bool,
-        green_robot_has_memory: bool,
-        yellow_robot_is_random: bool,
-        yellow_robot_has_memory: bool,
-        red_robot_is_random: bool,
-        red_robot_has_memory: bool,
+        self, n_green: int, n_yellow: int, n_red: int, robots_behavior: RobotBehavior
     ):
         """Place les robots dans leurs zones respectives."""
         possible_positions = {
@@ -136,24 +152,20 @@ class RobotMissionModel(Model):
             list(possible_positions[GreenRobot]), n_green
         )
         for x, y in green_positions:
-            self.grid.place_agent(
-                GreenRobot(self, green_robot_is_random, green_robot_has_memory), (x, y)
-            )
+            self.grid.place_agent(GreenRobot(self, robots_behavior), (x, y))
 
         yellow_positions = self.random.sample(
             list(possible_positions[YellowRobot]), n_yellow
         )
         for x, y in yellow_positions:
             self.grid.place_agent(
-                YellowRobot(self, yellow_robot_is_random, yellow_robot_has_memory),
+                YellowRobot(self, robots_behavior),
                 (x, y),
             )
 
         red_positions = self.random.sample(list(possible_positions[RedRobot]), n_red)
         for x, y in red_positions:
-            self.grid.place_agent(
-                RedRobot(self, red_robot_is_random, red_robot_has_memory), (x, y)
-            )
+            self.grid.place_agent(RedRobot(self, robots_behavior), (x, y))
 
     # ── DO — arbitre des actions ──────────────
     def do(self, agent: Robot, action: Action) -> dict:
