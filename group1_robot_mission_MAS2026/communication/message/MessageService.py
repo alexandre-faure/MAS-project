@@ -43,7 +43,7 @@ class MessageService:
     def send_message(self, message):
         """ Dispatch message if instant delivery active, otherwise add the message to proceed list.
         """
-        print(message)
+        # print(message) 
         if self.__instant_delivery:
     
             self.dispatch_message(message)
