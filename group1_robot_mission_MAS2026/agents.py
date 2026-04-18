@@ -109,6 +109,7 @@ class Robot(CommunicatingAgent, ABC):
     def __init__(self, model: Model, color: Color, robot_behavior: RobotBehavior):
         super().__init__(model, name=f"robot_{id(self)}")
         self.color = color
+        self.last_dropped_pos: tuple[int,int] | None = None
 
         # Behaviour flags — not mutually exclusive
         self.has_memory = robot_behavior in [
@@ -269,9 +270,9 @@ class Robot(CommunicatingAgent, ABC):
 
             cur_pos_data = percepts.get(cur_pos)
             if cur_pos_data is not None:
-                if not cur_pos_data.get("is_lower_zone") and data.get("is_lower_zone"):
+                if not cur_pos_data.get("is_higher_zone") and data.get("is_lower_zone"):
                     self.knowledge.min_x_zone = cur_pos[0]
-                if not cur_pos_data.get("is_higher_zone") and data.get("is_higher_zone"):
+                if not cur_pos_data.get("is_lower_zone") and data.get("is_higher_zone"):
                     self.knowledge.max_x_zone = cur_pos[0]
 
             for robot in data.get("robots", []):
@@ -435,8 +436,16 @@ class Robot(CommunicatingAgent, ABC):
     # ── Movement helpers ──────────────────────────────────────────────────
 
     def _move(self, action: Move) -> Move:
-        """Wrap any Move action: resets must_move flag."""
+        """Wrap any Move action: resets must_move flag and last_dropped_pos when it got away"""
         self.must_move = False
+        if self.last_dropped_pos is not None and self.knowledge.positions:
+            cur = self.knowledge.positions[-1]
+            dist = (
+                abs(cur[0] - self.last_dropped_pos[0])
+                + abs(cur[1] - self.last_dropped_pos[1])
+            )
+            if dist >= 2:
+                self.last_dropped_pos = None
         return action
 
     def _discover_randomly(
@@ -542,9 +551,13 @@ class Robot(CommunicatingAgent, ABC):
     def _go_to_closest_waste(self, knowledge: Knowledge) -> Action:
         if not knowledge.positions:
             return Wait()
-
+        excluded = self.last_dropped_pos
+        valid_wastes = [
+            pos
+            for pos in knowledge.known_wastes
+            if pos is not None and pos != excluded
+        ]
         cur_pos = knowledge.positions[-1]
-        valid_wastes = [pos for pos in knowledge.known_wastes if pos is not None]
         if not valid_wastes:
             return self._discover_randomly(knowledge)
 
@@ -657,11 +670,13 @@ class GreenRobot(Robot):
             if waste_to_drop is not None:
                 self.drop_object = False
                 self.carried_since = 0
+                self.must_move = True
+                self.last_dropped_pos = pos
                 return PutDown(waste_to_drop)
 
         # ── P3: Pick up green waste on current cell ───────────────────────
         green_wastes = current_cell_data.get("wastes", [])
-        if green_wastes and len(carried_wastes) < 2:
+        if green_wastes and len(carried_wastes) < 2 and not self.must_move and not (pos==self.last_dropped_pos):
             return self.pick_up(green_wastes[0])
 
         # ── P4: Flush pending outgoing messages ───────────────────────────
@@ -702,6 +717,7 @@ class GreenRobot(Robot):
                 self.must_move = True
                 self.carried_since = 0
                 if waste_to_drop :
+                    self.last_dropped_pos = pos
                     return PutDown(waste_to_drop)
 
         # ── P6b: Handle wait_answer (send msgs instead of idling) ─────────
@@ -781,11 +797,12 @@ class YellowRobot(Robot):
         if self.drop_object and carried_wastes and waste_to_drop:  
                 self.drop_object = False
                 self.carried_since = 0
+                self.last_dropped_pos = pos
                 return PutDown(waste_to_drop) #only drop waste of the same color as the robot
 
         # ── P3: Pick up yellow waste on current cell ──────────────────────
         yellow_wastes = current_cell_data.get("wastes", [])
-        if yellow_wastes and len(carried_wastes) < 2:
+        if yellow_wastes and len(carried_wastes) < 2 and pos != self.last_dropped_pos:
             return self.pick_up(yellow_wastes[0])
 
         # ── P4: Flush pending outgoing messages ───────────────────────────
@@ -826,6 +843,7 @@ class YellowRobot(Robot):
                 self.must_move = True
                 self.carried_since = 0                
                 if waste_to_drop:
+                    self.last_dropped_pos = pos
                     return PutDown(waste_to_drop)
 
         # ── P6b: Handle wait_answer ───────────────────────────────────────
@@ -836,7 +854,6 @@ class YellowRobot(Robot):
 
         # ── P7: Navigate to nearest known yellow waste ────────────────────
         if self.has_memory and knowledge.known_wastes:
-            self.must_move = False
             return self._go_to_closest_waste(knowledge)
 
         # ── P8: Epsilon broadcast ─────────────────────────────────────────
@@ -847,8 +864,6 @@ class YellowRobot(Robot):
         # ── P9: Boundary patrol or exploration ────────────────────────────
         if self.is_random:
             return self._move_randomly(knowledge)
-
-        self.must_move = False
 
         # Occasionally reset to random exploration to avoid boundary lock
         if self.random.random() < 1 / Robot.MAX_PATROL_DURATION:
@@ -921,6 +936,7 @@ class RedRobot(Robot):
             if waste_to_drop is not None:
                 self.drop_object = False
                 self.carried_since = 0
+                self.last_dropped_pos = pos
                 return PutDown(waste_to_drop)
 
         # ── P3: Flush pending outgoing messages ───────────────────────────
@@ -985,8 +1001,6 @@ class RedRobot(Robot):
         if self.is_random:
             return self._move_randomly(knowledge)
 
-        self.must_move = False
-
         # Occasionally reset to random exploration to avoid boundary lock
         if self.random.random() < 1 / Robot.MAX_PATROL_DURATION:
             self.knowledge.must_explore = Robot.EXPLORE_DURATION
@@ -1001,3 +1015,4 @@ class RedRobot(Robot):
             return self._discover_randomly(knowledge, in_area=True)
         # Stay on boundary and patrol vertically
         return self._discover_randomly(knowledge, axis=1)
+
