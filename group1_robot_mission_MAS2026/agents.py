@@ -20,6 +20,8 @@ from abc import ABC, abstractmethod
 from random import randint
 from typing import Any
 
+from ipyvuetify import Col
+
 from communication import CommunicatingAgent
 from communication.message.Message import Message
 from communication.message.MessagePerformative import MessagePerformative
@@ -40,7 +42,7 @@ from utils import (
 )
 
 # Probability of broadcasting knowledge when nothing more urgent to do
-BROADCAST_EPSILON = 0.05
+BROADCAST_EPSILON = 0.01
 
 
 class Knowledge:
@@ -204,11 +206,22 @@ class Robot(CommunicatingAgent, ABC):
         )
 
         other_robots = [a for a in cellmates if isinstance(a, Robot)]
-        visitable = (
+
+        if self.knowledge.min_x_zone:    
+            visitable = (
+            radioactivity_cell.radioactivity <= self.max_radioactivity
+            and pos != self.pos
+            and not other_robots
+            and pos[0] - self.knowledge.min_x_zone > -3
+        )
+        
+        else :
+            visitable = (
             radioactivity_cell.radioactivity <= self.max_radioactivity
             and pos != self.pos
             and not other_robots
         )
+        
 
         return {
             "pos": pos,
@@ -305,9 +318,10 @@ class Robot(CommunicatingAgent, ABC):
         if not self.can_communicate:
             return
         payload = self._build_knowledge_message()
-        same_color_robots = self.model.agents_by_type.get(type(self), [])
-        for agent in same_color_robots:
-            if agent.unique_id != self.unique_id:
+        #same_color_robots = self.model.agents_by_type.get(type(self), [])
+        all_robots = self.model.agents
+        for agent in all_robots:
+            if agent.unique_id != self.unique_id and isinstance(agent, Robot) :
                 self.messages_to_send.append(
                     Message(
                         self.get_name(),
@@ -637,8 +651,9 @@ class GreenRobot(Robot):
         super().__init__(model, Color.GREEN, robot_behavior)
 
     def deliberate(self, knowledge: Knowledge) -> Action:
-        if not knowledge.positions:
-            return Wait()
+        if not knowledge.positions:  
+            self._prepare_broadcast_knowledge()
+            return self._flush_messages()
 
         pos = knowledge.positions[-1]
         carried_wastes = self._get_current_carried_wastes(knowledge)
@@ -675,8 +690,9 @@ class GreenRobot(Robot):
                 return PutDown(waste_to_drop)
 
         # ── P3: Pick up green waste on current cell ───────────────────────
+        carry_green = True if not carried_wastes or carried_wastes[0].waste_type == Color.GREEN else False
         green_wastes = current_cell_data.get("wastes", [])
-        if green_wastes and len(carried_wastes) < 2 and not self.must_move and not (pos==self.last_dropped_pos):
+        if green_wastes and len(carried_wastes) < 2 and not self.must_move and not (pos==self.last_dropped_pos) and carry_green:
             return self.pick_up(green_wastes[0])
 
         # ── P4: Flush pending outgoing messages ───────────────────────────
@@ -727,6 +743,9 @@ class GreenRobot(Robot):
                 return action
             # No peers — give up waiting and fall through
 
+
+
+
         # ── P7: Navigate to nearest known green waste ─────────────────────
         if self.has_memory and knowledge.known_wastes:
             return self._go_to_closest_waste(knowledge)
@@ -768,7 +787,8 @@ class YellowRobot(Robot):
 
     def deliberate(self, knowledge: Knowledge) -> Action:
         if not knowledge.positions:
-            return Wait()
+            self._prepare_broadcast_knowledge()
+            return self._flush_messages()
 
         pos = knowledge.positions[-1]
         carried_wastes = self._get_current_carried_wastes(knowledge)
@@ -778,6 +798,7 @@ class YellowRobot(Robot):
             self.carried_since += 1
         else:
             self.carried_since = 0
+        
         waste_to_drop = next(
                 (
                     w
@@ -800,9 +821,10 @@ class YellowRobot(Robot):
                 self.last_dropped_pos = pos
                 return PutDown(waste_to_drop) #only drop waste of the same color as the robot
 
+        carry_yellow = True if not carried_wastes or carried_wastes[0].waste_type == Color.YELLOW else False
         # ── P3: Pick up yellow waste on current cell ──────────────────────
         yellow_wastes = current_cell_data.get("wastes", [])
-        if yellow_wastes and len(carried_wastes) < 2 and pos != self.last_dropped_pos:
+        if yellow_wastes and len(carried_wastes) < 2 and pos != self.last_dropped_pos and carry_yellow:
             return self.pick_up(yellow_wastes[0])
 
         # ── P4: Flush pending outgoing messages ───────────────────────────
@@ -852,6 +874,7 @@ class YellowRobot(Robot):
             if action is not None:
                 return action
 
+        
         # ── P7: Navigate to nearest known yellow waste ────────────────────
         if self.has_memory and knowledge.known_wastes:
             return self._go_to_closest_waste(knowledge)
@@ -906,7 +929,8 @@ class RedRobot(Robot):
 
     def deliberate(self, knowledge: Knowledge) -> Action:
         if not knowledge.positions:
-            return Wait()
+            self._prepare_broadcast_knowledge()
+            return self._flush_messages()
 
         pos = knowledge.positions[-1]
         carried_wastes = self._get_current_carried_wastes(knowledge)
@@ -966,27 +990,6 @@ class RedRobot(Robot):
         if carried_wastes and self.has_memory and knowledge.disposal_pos is not None:
             return self._move_towards(knowledge.disposal_pos, knowledge)
 
-        # ── P6b: Propose exchange if stuck carrying for too long ──────────
-        if (
-            self.can_communicate
-            and carried_wastes
-            and self.carried_since > 10
-            and not self.wait_answer
-            and not self.must_move
-        ):
-            neighbour = self._find_neighbour_of_color(Color.RED)
-            if neighbour is not None:
-                self.messages_to_send.append(
-                    self._prepare_exchange_proposal(
-                        carried_wastes[0], neighbour.get_name()
-                    )
-                )
-                self.wait_answer = True
-                return self._flush_messages()
-            else:
-                self.must_move = True
-                self.carried_since = 0
-                return PutDown(carried_wastes[0])
 
         # ── P7: Navigate to nearest known red waste ───────────────────────
         if self.has_memory and knowledge.known_wastes:
@@ -996,6 +999,8 @@ class RedRobot(Robot):
         broadcast_action = self._try_broadcast()
         if broadcast_action is not None:
             return broadcast_action
+
+
 
         # ── P9: Boundary patrol or exploration ────────────────────────────
         if self.is_random:
@@ -1008,8 +1013,7 @@ class RedRobot(Robot):
         # Move towards z1/z2 boundary to intercept dropped yellow wastes
         if not knowledge.must_explore and knowledge.min_x_zone is None:
             return self._move_in_direction((-1, 0), knowledge)
-        if not knowledge.must_explore and pos[0] != knowledge.min_x_zone - 1:
-            return self._move_towards((knowledge.min_x_zone - 1, None), knowledge)
+
 
         if knowledge.must_explore:
             return self._discover_randomly(knowledge, in_area=True)
