@@ -23,6 +23,7 @@ from utils import (
     Transform,
     Wait,
     Zone,
+    SendMessages
 )
 
 update_counter = solara.reactive(0)
@@ -231,8 +232,7 @@ class RobotMissionModel(Model):
                 new_waste = Waste(self, Color.RED, cur_step)
             else:
                 new_waste = Waste(self, Color.RED, cur_step)
-            else:
-                raise ValueError(f"Robot {agent.name} cannot transform wastes")
+
 
             # Supprime les déchets transformés
             for w in wastes:

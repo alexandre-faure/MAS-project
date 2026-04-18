@@ -31,7 +31,6 @@ class Waste(Agent):
     """Agent representing a waste."""
 
     def __init__(self, model: Model, waste_type: Color, step_created: int = 0):
-    def __init__(self, model: Model, waste_type: Color, step_created: int = 0):
         super().__init__(model)
 
         self.waste_type = waste_type
@@ -60,20 +59,20 @@ class Waste(Agent):
         return f"Waste_{self.unique_id}"
 
 
-### Actions related to objects
-class PickUp(Action):
-    def __init__(self, waste: Waste):
-        super().__init__(ActionType.PICK_UP)
-        self.waste = waste
+# ### Actions related to objects
+# class PickUp(Action):
+#     def __init__(self, waste: Waste):
+#         super().__init__(ActionType.PICK_UP)
+#         self.waste = waste
 
 
-class PutDown(Action):
-    def __init__(self, waste: Waste):
-        super().__init__(ActionType.PUT_DOWN)
-        self.waste = waste
+# class PutDown(Action):
+#     def __init__(self, waste: Waste):
+#         super().__init__(ActionType.PUT_DOWN)
+#         self.waste = waste
 
 
-class Transform(Action):
-    def __init__(self, wastes: list[Waste]):
-        super().__init__(ActionType.TRANSFORM)
-        self.wastes = wastes
+# class Transform(Action):
+#     def __init__(self, wastes: list[Waste]):
+#         super().__init__(ActionType.TRANSFORM)
+#         self.wastes = wastes
