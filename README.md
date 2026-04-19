@@ -88,11 +88,18 @@ To measure and objectively compare the performance of the model under different 
 
 $T$: the scenario duration (number of steps to conclude the scenario).
 
+A METTRE À JOUR
+
 $C_f$: the final ratio of collected waste.
 
-$$C_f = \frac{N_{collected}}{1,75 \cdot N_{generated}^{green}}$$
+$$C_f = \frac{N_{collected}}{N_{collectable}}$$
 
-Where $N_{collected}$ is the total number of waste collected by the robots and $N_{generated}^{green}$ is the total number of waste generated in the environment. A higher final ratio indicates that more waste has been collected, which is a sign of better performance. We multiply by $1,75$ because 4 gree wastes are transformed into 2 yellow wastes, then 1 red waste.
+Where $N_{collected}$ is the total number of waste collected (whatever the color) by the robots. $N_{collectable}$ represents the total number of collectable wastes based on the initial setting according to this formula:
+$$N_{collectable} = N_{generated}^{red} + 1.5\cdot N_{generated}^{yellow} + 1.75 \cdot N_{generated}^{green}$$
+
+Where $N_{generated}^{k}$ is the number of waste of type $k$ that were generated at the beginning of the scenario. The coefficients 1.5 and 1.75 are used to take into account that when merged, they will generate a new waste.
+
+> Note: this metrics penalizes more uncollected green wastes.
 
 ### 4.2. Speed metrics
 
@@ -134,7 +141,7 @@ Based on the problem, we will consider that each robot has a given cost per step
 
 ### 5.2. Scenarios
 
-#### 5.1.1. Main scenarios
+#### 5.2.1. Main scenarios
 
 We will consider 3 main scenarios with different robots behaviors:
 
@@ -142,13 +149,81 @@ We will consider 3 main scenarios with different robots behaviors:
 - **Scenario 2 ($S^{k}$)**: Knowledge based behavior: robots have a basic knowledge of the environment and try to move towards the areas where they are more likely to find waste.
 - **Scenario 3 ($S^{com}$)**: Communication based behavior: robots communicate with each other to share information about the location of waste and coordinate their movements to optimize the collection process.
 
-#### 5.1.2. Sub-scenarios
+#### 5.2.1. Sub-scenarios
 
 In addition, we will further specify scenarios in different sub-scenarios with different numbers of robots of each type to evaluate the impact of the cost on the overall performance of the system:
 
 - **Sub-scenario $n_g, n_y, n_r$ ($S_{n_g, n_y, n_r}$)**: Random behavior with $n_g$ green robots, $n_y$ yellow robots and $n_r$ red robots.
 
 We will study those sub-scenarios: $S_{1, 1, 1}$, $S_{1, 2, 3}$, $S_{3, 2, 1}$, $S_{3, 3, 3}$, $S_{5, 5, 5}$.
+
+### 5.3. Robots behaviors
+
+We will denote $G$, $Y$ and $R$, respectively a green, yellow and red robot. We denote the color of the robot, and the next color if it exists as $c$ and $c'$. For example, for a green robot, $c = green$ and $c' = yellow$.
+
+Between the different behaviors, new capabilities will be writtern in <p style="display:inline;color:green;">green</p> and upgraded capabilities will be writtern in <p style="display:inline;color:orange">orange</p>.
+
+#### 5.3.1. Random behavior
+
+When in **random behavior**, the robots don't have any memory and cannot communicate. Thus, at each deliberation step, here is what they do:
+
+**$G$ and $Y$ robots**:
+
+1. If they carry 2 $c$ wastes, they transform them into a $c'$ waste.
+2. Else, if they carry a $c'$ object, they move to the border to drop it.
+3. Else, if a $c$ waste is in their cell, they pick it up.
+4. Else, move randomly.
+
+**$R$ robots**:
+
+1. If not carrying any waste and a $c$ waste is in their cell, they pick it up.
+2. Else, if on the disposal cell and carrying a $c$ waste, they drop it.
+3. Else, move randomly.
+
+#### 5.3.2. Knowledge based behavior
+
+When in **knowledge based behavior**, the robots have a basic knowledge of the environment and try to move towards the areas where they are more likely to find waste. They also have a memory, but no communication.
+
+Note that with memory, $Y$ and $R$ robots will have 2 research modes:
+- **exploration mode**: exploring randomly their environment by prefering cells that have never been visited before, or that haven't been visited for a long time.
+- **patrol mode**: exploring along the western border of the color $c$ area (y-axis) to find waste. This will facilitate the search for wastes that were transformed by robots of the previous color.
+
+At each step, if in exploration mode, their inner timer will be decremented until it reaches 0, then they will switch to patrol mode. If in patrol mode, they will have a random probability to switch to exploration mode.
+
+Thus, at each deliberation step, here is what they do:
+
+**$G$ robots**:
+
+1. If they carry 2 green wastes, they transform them into a yellow waste.
+2. Else, if they carry a yellow waste, they move to the border to drop it.
+3. Else, if a green waste is in their cell, they pick it up.
+4. <p style="display:inline;color:green">Else, if they know a cell with a green waste, they move towards it.</p>
+5. Else, they <p style="display:inline;color:orange">explore randomly by prefering cells that have never been visited before, or that haven't been visited for a long time.</p>
+
+**$Y$ robots**:
+1. If they carry 2 yellow wastes, they transform them into a red waste.
+2. Else, if they carry a red waste, they move to the border to drop it.
+3. Else, if a yellow waste is in their cell, they pick it up.
+4. <p style="display:inline;color:green">Else, if they know a cell with a yellow waste, they move towards it.</p>
+5. <p style="display:inline;color:green">Depending on their research mode</p>
+
+   1. <p style="display:inline;color:orange">If they are in exploration mode, they explore randomly by prefering cells that have never been visited before, or that haven't been visited for a long time.</p>
+   2. <p style="display:inline;color:green">If they are in patrol mode, they go to the border, then they explore along the y-axis.</p>
+
+**$R$ robots**
+
+1. If not carrying any waste and a red waste is in their cell, they pick it up.
+2. <p style="display:inline;color:green">Else, if they don't know yet where the disposal cell is, they explore the y-axis at the most eastern part of the map to find it.</p>
+3. Else, if they are on the disposal cell and carrying a red waste, they drop it.
+4. <p style="display:inline;color:green">Else, if they know a cell with a red waste, they move towards it.</p>
+5. <p style="display:inline;color:green">Depending on their research mode</p>
+   
+   1. <p style="display:inline;color:orange">If they are in exploration mode, they explore randomly by prefering cells that have never been visited before, or that haven't been visited for a long time.</p>
+   2. <p style="display:inline;color:green">If they are in patrol mode, they go to the border, then they explore along the y-axis.</p>
+
+#### 5.3.3. Communication based behavior
+
+When in **communication based behavior**, the robots have the same capabilities as in knowledge based behavior, but they can also communicate with each other to share information about [TO BE COMPLETED].
 
 ## 6. Results
 

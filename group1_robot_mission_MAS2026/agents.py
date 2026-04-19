@@ -265,6 +265,7 @@ class Robot(CommunicatingAgent, ABC):
         self.knowledge.visitable_cells.clear()
         self.knowledge.last_visited[cur_pos] = self.knowledge.round
         self.knowledge.must_explore = max(self.knowledge.must_explore - 1, 0)
+        self.knowledge.carried_wastes.append(self.carrying.copy())
 
         for pos, data in percepts.items():
             if data is None:
@@ -273,7 +274,6 @@ class Robot(CommunicatingAgent, ABC):
             self.knowledge.in_grid_cells.add(pos)
             self.knowledge.last_seen[pos] = self.knowledge.round
             self.knowledge.cell_data[pos] = data
-            self.knowledge.carried_wastes.append(self.carrying.copy())
 
             if len(data.get("wastes", [])) > 0:
                 self.knowledge.known_wastes.add(pos)
@@ -329,9 +329,6 @@ class Robot(CommunicatingAgent, ABC):
         """
         self.nb_exploring_steps += 1
 
-        if not knowledge.positions:
-            return Wait()
-
         cur_pos = knowledge.positions[-1]
         available_moves = [
             (knowledge.last_visited.get(pos, -1), pos)
@@ -367,10 +364,6 @@ class Robot(CommunicatingAgent, ABC):
     def _move_in_direction(
         self, direction: tuple[int, int], knowledge: Knowledge
     ) -> Action:
-
-        if not knowledge.positions:
-            return Wait()
-
         cur_pos = knowledge.positions[-1]
 
         if not direction[0] and not direction[1]:
@@ -421,10 +414,6 @@ class Robot(CommunicatingAgent, ABC):
         return Move(position=self.model.random.choice(best_next))
 
     def _go_to_closest_waste(self, knowledge: Knowledge) -> Action:
-
-        if not knowledge.positions:
-            return Wait()
-
         cur_pos = knowledge.positions[-1]
         #  on filtre les positions de known_wastes dont on n'a pas de cell_data
         # (connues par communication mais jamais vues directement) pour éviter des
@@ -440,13 +429,6 @@ class Robot(CommunicatingAgent, ABC):
         _, closest_waste_pos = min(manhattan_distances, key=lambda x: x[0])
         return self._move_towards(closest_waste_pos, knowledge)
 
-    def _get_current_carried_wastes(self, knowledge: Knowledge) -> list[Waste]:
-        """Safe accessor for the current carried wastes."""
-        #  carried_wastes peut être vide au premier tour
-        if not knowledge.carried_wastes:
-            return []
-        return knowledge.carried_wastes[-1]
-
     def pick_up(self, waste: Waste) -> Action:
         """Helper method to return a PickUp action for a given waste."""
         self.nb_wastes_collected += 1
@@ -460,12 +442,8 @@ class GreenRobot(Robot):
         super().__init__(model, Color.GREEN, robot_behavior)
 
     def deliberate(self, knowledge: Knowledge) -> Action:
-        # utilisation du helper sécurisé pour carried_wastes
-        if not knowledge.positions:
-            return Wait()
-
         pos = knowledge.positions[-1]
-        carried_wastes = self._get_current_carried_wastes(knowledge)
+        carried_wastes = knowledge.carried_wastes[-1]
         current_cell_data = knowledge.cell_data.get(pos, {})
 
         # 1. Transformer 2 verts → 1 jaune
@@ -506,11 +484,8 @@ class YellowRobot(Robot):
         super().__init__(model, Color.YELLOW, robot_behavior)
 
     def deliberate(self, knowledge: Knowledge) -> Action:
-        if not knowledge.positions:
-            return Wait()
-
         pos = knowledge.positions[-1]
-        carried_wastes = self._get_current_carried_wastes(knowledge)
+        carried_wastes = knowledge.carried_wastes[-1]
         current_cell_data = knowledge.cell_data.get(pos, {})
 
         # 1. Transformer 2 jaunes → 1 rouge
@@ -567,11 +542,8 @@ class RedRobot(Robot):
         super().__init__(model, Color.RED, robot_behavior)
 
     def deliberate(self, knowledge: Knowledge) -> Action:
-        if not knowledge.positions:
-            return Wait()
-
         pos = knowledge.positions[-1]
-        carried_wastes = self._get_current_carried_wastes(knowledge)
+        carried_wastes = knowledge.carried_wastes[-1]
         current_cell_data = knowledge.cell_data.get(pos, {})
         disposal_pos = knowledge.disposal_pos
 
