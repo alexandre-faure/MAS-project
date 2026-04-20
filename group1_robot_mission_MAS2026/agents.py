@@ -10,10 +10,13 @@
 #    is preserved from file 1, gated on self.can_communicate
 #  - carried_wastes.append is called once per step (bug fix from file 2)
 #  - must_move is reset as soon as the robot returns any Move action
-#  - wait_answer: robot sends pending messages instead of waiting passively
+#  - wait_answer: set on PROPOSE_TO_GIVE, cleared on ACCEPT_EXCHANGE /
+#    REJECT_EXCHANGE; while set, the robot flushes pending broadcasts instead
+#    of idling.
 #  - RedRobot: pick up first, then find disposal zone (file 2 logic)
-#  - Action priority within deliberate:
-#      Transform > PutDown(drop_object) > PickUp > flush messages_to_send > rest
+#  - Action priority: see per-class docstrings (GreenRobot, YellowRobot,
+#    RedRobot). Every P_i marked `[can_communicate only]` is short-circuited
+#    when the robot is in MEMORY or RANDOM mode.
 # ══════════════════════════════════════════════════════════════════════════════
 
 from abc import ABC, abstractmethod
@@ -48,7 +51,16 @@ BROADCAST_EPSILON = 0.01
 
 
 class Knowledge:
-    """Beliefs and knowledge of a robot."""
+    """Beliefs and knowledge of a robot.
+
+    Storage layout:
+    - last_seen / last_visited / cell_data: per-cell telemetry.
+    - carried_wastes: one snapshot per round; self.carrying.copy() is appended
+      by update_knowledge exactly once per step.
+    - data: free-form dict. Keys of the form 'carried_by_{id}' record the
+      most recent carried-waste report received from peer {id} and are the
+      substrate of the rendezvous eligibility test in Robot._in_endgame.
+    """
 
     def __init__(self):
         self.round: int = 0
@@ -68,14 +80,19 @@ class Knowledge:
         self.max_x_zone: int | None = None
         self.disposal_pos: tuple[int, int] | None = None
 
-        # Arbitrary extra data (e.g. carried_wastes of peers)
+        # Arbitrary extra data, incl. per-peer carried-waste telemetry
+        # (see class docstring).
         self.data: dict[str, Any] = {}
 
         # Steps remaining before switching from exploration to boundary patrol
         self.must_explore: int = Robot.EXPLORE_DURATION
 
     def merge_with_other(self, other: "Knowledge"):
-        """Merge this knowledge with another (e.g. during communication)."""
+        """Merge another Knowledge into this one (last-write-wins on last_seen
+        timestamps). Currently unused: in the communication-enabled path,
+        knowledge fusion happens incrementally via INFORM_REF payloads inside
+        _process_incoming_messages. Kept for symmetry and ablation runs.
+        """
         if other is None:
             return
 
@@ -129,15 +146,19 @@ class Robot(CommunicatingAgent, ABC):
         # ── Communication state ────────────────────────────────────────────
         # Outgoing message queue: filled during deliberate, sent via SendMessages
         self.messages_to_send: list[Message] = []
-        # True while waiting for a reply to an outgoing PROPOSE_TO_GIVE
+        # True while waiting for a reply to an outgoing PROPOSE_TO_GIVE; cleared
+        # by _process_incoming_messages on ACCEPT_EXCHANGE or REJECT_EXCHANGE.
         self.wait_answer: bool = False
         # Set True by _process_incoming_messages when ACCEPT_EXCHANGE is received
         self.drop_object: bool = False
 
         # ── Carrying / movement state ──────────────────────────────────────
-        # Consecutive steps during which the robot is carrying a waste
+        # Number of consecutive steps carrying at least one waste;
+        # reset to 0 when hands become empty.
         self.carried_since: int = 0
-        # Set True after failed exchange attempt (no neighbour); reset on Move
+        # Legacy flag, read as a guard in P3/P6 and cleared by _move.
+        # No branch currently sets it in the active (rendezvous-based) code
+        # path; emergency-drop branches that used to set it were removed.
         self.must_move: bool = False
 
         # ── Metrics ───────────────────────────────────────────────────────
@@ -247,6 +268,7 @@ class Robot(CommunicatingAgent, ABC):
         }
 
     def perceive(self) -> dict:
+        # Von Neumann neighbourhood, centre included → 5 cells per percept.
         neighborhood = self.model.grid.get_neighborhood(
             self.pos, moore=False, include_center=True
         )
@@ -266,18 +288,6 @@ class Robot(CommunicatingAgent, ABC):
 
         # Snapshot of carried wastes — exactly once per step (file-2 bug fix)
         self.knowledge.carried_wastes.append(self.carrying.copy())
-
-        # # ── anchor zone borders to own-zone cells ────────────────────────────
-        # cur_pos_data = percepts.get(cur_pos)
-        # if cur_pos_data is not None and cur_pos_data.get("my_zone"):
-        #     # Western border: smallest x ever observed while standing in own zone
-        #     if self.knowledge.min_x_zone is None or cur_pos[0] < self.knowledge.min_x_zone:
-        #         self.knowledge.min_x_zone = cur_pos[0]
-        #     # Eastern border: largest x ever observed while standing in own zone
-        #     if self.knowledge.max_x_zone is None or cur_pos[0] > self.knowledge.max_x_zone:
-        #         self.knowledge.max_x_zone = cur_pos[0]
-
-
 
         for pos, data in percepts.items():
             if data is None:
@@ -301,6 +311,9 @@ class Robot(CommunicatingAgent, ABC):
             ):
                 self.knowledge.disposal_pos = pos
 
+            # Zone-border detection: a transition my_zone -> lower_zone gives
+            # the western border (min_x_zone); my_zone -> higher_zone gives
+            # the eastern border (max_x_zone).
             cur_pos_data = percepts.get(cur_pos)
             if cur_pos_data is not None:
                 if not cur_pos_data.get("is_higher_zone") and data.get("is_lower_zone") and cur_pos_data.get("my_zone"):
@@ -326,7 +339,7 @@ class Robot(CommunicatingAgent, ABC):
                 if pos in self.knowledge.last_seen
                 and self.knowledge.last_seen[pos] is not None
             },
-            "last_visited": dict(self.knowledge.last_visited),  #to improve coordination between agents
+            "last_visited": dict(self.knowledge.last_visited),  # improves inter-agent patrol coordination
             "carried_wastes": [
                 w.waste_type.value for w in self.carrying if w is not None
             ],
@@ -335,17 +348,18 @@ class Robot(CommunicatingAgent, ABC):
 
     def _prepare_broadcast_knowledge(self):
         """
-        Queue one INFORM_REF per same-color peer.
+        Queue one INFORM_REF per other robot (transport-level broadcast).
+        The same-colour relevance filter is applied by the receiver on the
+        payload contents, not by the sender on the recipient list.
         Does NOT send — caller must return SendMessages(self.messages_to_send).
         Only queues if self.can_communicate.
         """
         if not self.can_communicate:
             return
         payload = self._build_knowledge_message()
-        #same_color_robots = self.model.agents_by_type.get(type(self), [])
         all_robots = self.model.agents
         for agent in all_robots:
-            if agent.unique_id != self.unique_id and isinstance(agent, Robot) :
+            if agent.unique_id != self.unique_id and isinstance(agent, Robot):
                 self.messages_to_send.append(
                     Message(
                         self.get_name(),
@@ -374,7 +388,9 @@ class Robot(CommunicatingAgent, ABC):
         """
         Read all pending messages and update knowledge / queue replies.
         Reading messages does NOT consume a timestep.
-        Handles: INFORM_REF, PROPOSE_TO_GIVE, ACCEPT_EXCHANGE, REJECT_EXCHANGE.
+        Handles: INFORM_REF, INFORM_DROP, INFORM_PICKUP, PROPOSE_TO_GIVE,
+        ACCEPT_EXCHANGE, REJECT_EXCHANGE, and the four *_RENDEZVOUS
+        performatives.
         """
         for message in self.get_new_messages():
             if message is None:
@@ -405,7 +421,7 @@ class Robot(CommunicatingAgent, ABC):
                             self.knowledge.last_seen[pos] = round_seen
                             self.knowledge.known_wastes.add(pos)
                 
-                #  merge last_visited (element-wise max) with same color robots
+                # Merge last_visited element-wise by max with same-color peers.
                 if isinstance(shared_last_visited, dict):
                     for pos_raw, round_visited in shared_last_visited.items():
                         pos = tuple(pos_raw) if not isinstance(pos_raw, tuple) else pos_raw
@@ -413,11 +429,12 @@ class Robot(CommunicatingAgent, ABC):
                             continue
                         current = self.knowledge.last_visited.get(pos, -1)
                         if round_visited > current: 
-                            #update only when the knowledge share is more recent
+                            # Update only when the shared observation is more recent.
                             self.knowledge.last_visited[pos] = round_visited
 
 
-                # Keep carried-waste tracking regardless of sender color
+                # Carried-waste telemetry is kept for every sender regardless
+                # of colour; it feeds _in_endgame / _find_endgame_peer.
                 if sender_id is not None:
                     carried = payload.get("carried_wastes")
                     self.knowledge.data[f"carried_by_{sender_id}"] = {
@@ -505,7 +522,8 @@ class Robot(CommunicatingAgent, ABC):
                 payload = message.get_content()
                 if not isinstance(payload, dict):
                     continue
-                # Conditions to accept: same color, carrying singleton, not already in rendezvous
+                # Accept tentatively if: same color, carrying singleton, not
+                # already in a rendezvous. A later CONFIRM may bump us.
                 if (self.color.value == payload.get("sender_color")
                         and len(self.carrying) == 1
                         and self.carrying[0].waste_type == self.color
@@ -516,7 +534,7 @@ class Robot(CommunicatingAgent, ABC):
                         initiator_pos = payload.get("sender_pos")
                         if initiator_pos is not None:
                             initiator_pos = tuple(initiator_pos) if not isinstance(initiator_pos, tuple) else initiator_pos
-                        # Enter CONFIRMED_PARTNER state tentatively
+                        # Enter TENTATIVE_PARTNER state.
                         self.rendezvous_active = True
                         self.rendezvous_pos = meeting_pos
                         self.rendezvous_partner_id = payload.get("sender_id")
@@ -671,14 +689,13 @@ class Robot(CommunicatingAgent, ABC):
 
     def _in_endgame(self, knowledge: Knowledge) -> bool:
         """
-        Rendezvous only abled in endgame.
+        Rendezvous is only enabled in the end-game.
         True if conditions warrant initiating a rendezvous:
         - communication enabled
-        - color is GREEN or YELLOW (red doesn't need partner)
+        - color is GREEN or YELLOW (red doesn't need a partner)
         - carrying exactly 1 waste of own color
-        - no known waste of own color remaining
-        - at least one same-color peer also carrying 1 waste of own color (recently)
-        - carried_since > 10 (give normal exchange a chance first)
+        - at least one same-color peer also carrying 1 waste of own color
+          (reported in the last 2*BROADCAST_EVERY_K_ROUNDS via INFORM_REF)
         """
         if not self.can_communicate:
             return False
@@ -686,6 +703,8 @@ class Robot(CommunicatingAgent, ABC):
             return False
         if len(self.carrying) != 1 or self.carrying[0].waste_type != self.color:
             return False
+        # The two additional guards below were disabled during tuning; kept
+        # commented to document the ablation.
         # if len(knowledge.known_wastes) > 0:
         #     return False
         # if self.carried_since < 10:
@@ -707,8 +726,9 @@ class Robot(CommunicatingAgent, ABC):
 
     def _find_endgame_peer(self, knowledge: Knowledge) -> tuple[int, tuple[int,int]] | None:
         """
-        Find a same-color peer carrying a singleton with lower unique_id than self
-        (the one with the LOWEST id becomes initiator, tie-broken by unique_id ordering).
+        Find a same-color peer carrying a singleton. The initiator role goes
+        to the robot with the LOWER unique_id, so this function only returns
+        peers whose id is strictly greater than self's.
         Returns (peer_id, peer_pos) or None.
         """
         my_id = self.unique_id
@@ -730,7 +750,8 @@ class Robot(CommunicatingAgent, ABC):
             if peer_pos is None:
                 continue
 
-            # Prefer peer with lowest id; self must have LOWER id than peer to initiate
+            # Self must have a LOWER id than peer to act as initiator; among
+            # eligible peers we keep the smallest id for determinism.
             if my_id < peer_id:
                 if best is None or peer_id < best[0]:
                     best = (peer_id, tuple(peer_pos))
@@ -854,7 +875,10 @@ class Robot(CommunicatingAgent, ABC):
     # ── Movement helpers ──────────────────────────────────────────────────
 
     def _move(self, action: Move) -> Move:
-        """Wrap any Move action: resets must_move flag and last_dropped_pos when it got away"""
+        """Wrap any Move action: resets must_move flag and clears
+        last_dropped_pos once the robot has moved at least 2 Manhattan cells
+        away from the drop site.
+        """
         self.must_move = False
         if self.last_dropped_pos is not None and self.knowledge.positions:
             cur = self.knowledge.positions[-1]
@@ -1038,17 +1062,21 @@ class GreenRobot(Robot):
     """
     Green robot — operates in zone 1.
 
-    Deliberation priority order:
-      P1   Transform 2 green → 1 yellow  (immediate, no movement cost)
-      P2   Drop waste because peer accepted exchange  (drop_object flag)
-      P3   Pick up green waste on current cell
-      P4   Flush pending outgoing messages  (replies built in _process_incoming_messages)
-      P5   Deposit yellow waste at z1/z2 boundary
-      P6   Propose exchange if carrying too long  [can_communicate only]
-      P6b  Handle wait_answer: send pending msgs
-      P7   Navigate to nearest known green waste  [has_memory only]
-      P8   Epsilon broadcast  [can_communicate only]
-      P9   Random walk (is_random) or systematic exploration
+    Deliberation priority order (as implemented in deliberate):
+      P1    Transform 2 green → 1 yellow  (immediate, no movement cost)
+      P2    Drop waste because peer accepted exchange  (drop_object flag)
+      P3    Pick up green waste on current cell
+      P3.5a Abort rendezvous if timeout reached                       [can_communicate only]
+      P3.5b Hand off via PROPOSE_TO_GIVE when partner is adjacent     [can_communicate only]
+      P4    Flush pending outgoing messages                           [can_communicate only]
+      P5    Deposit yellow waste at z1/z2 boundary
+      P5.5  Travel to rendezvous meeting cell                         [can_communicate only]
+      P6    Propose exchange if carrying too long                     [can_communicate only]
+      P6.5  Initiate rendezvous in end-game                           [can_communicate only]
+      P6b   Handle wait_answer (send queued broadcast)                [can_communicate only]
+      P7    Navigate to nearest known green waste                     [has_memory only]
+      P8    Periodic or epsilon broadcast                             [can_communicate only]
+      P9    Random walk (is_random) or LRV exploration
     """
 
     def __init__(self, model: Model, robot_behavior: RobotBehavior):
@@ -1102,12 +1130,14 @@ class GreenRobot(Robot):
                 return PutDown(waste_to_drop)
 
         # ── P3: Pick up green waste on current cell ───────────────────────
+        # carry_green is False only when already carrying a transformed
+        # yellow waste (the P1 guard above did not trigger).
         carry_green = True if not carried_wastes or carried_wastes[0].waste_type == Color.GREEN else False
         green_wastes = current_cell_data.get("wastes", [])
         if green_wastes and len(carried_wastes) < 2 and not self.must_move and not (pos==self.last_dropped_pos) and carry_green:
             return self.pick_up(green_wastes[0])
         
-        # ── P3.5a: Rendezvous timeout : took too long, abort meeting  ─────────────────────────────────────
+        # ── P3.5a: Rendezvous took too long, abort meeting ─────────────────
         if self.rendezvous_active and self.knowledge.round > self.rendezvous_timeout:
             self._queue_rendezvous_end("timeout")
             self._reset_rendezvous()
@@ -1158,8 +1188,7 @@ class GreenRobot(Robot):
         if (self.rendezvous_active
                 and self.rendezvous_pos is not None
                 and self.rendezvous_partner_id is not None):
-            # Sanity: if I'm no longer a singleton, abort -> no meeting needed if I carry more than one waste
-            # or when I do carry any waste
+            # Sanity: abort if carrying state is no longer singleton-own-colour
             if len(self.carrying) != 1 or self.carrying[0].waste_type != self.color:
                 self._queue_rendezvous_end("state_changed")
                 self._reset_rendezvous()
@@ -1189,7 +1218,8 @@ class GreenRobot(Robot):
                     return self._flush_messages()
 
 
-        # ── P6: Propose exchange if stuck carrying for too long (not possible during rendezvous) ───────────
+        # ── P6: Propose exchange if stuck carrying for too long
+        #        (disabled during rendezvous to avoid protocol races) ──────
         if (
             self.can_communicate
             and carried_wastes
@@ -1207,8 +1237,9 @@ class GreenRobot(Robot):
                 )
                 self.wait_answer = True
                 return self._flush_messages()
+            # Emergency-drop branch intentionally removed (see README §5.3.3,
+            # ablation note). Remnants kept for historical reference:
             # else:
-            #     # No neighbour found: drop and flag to move away
             #     self.must_move = True
             #     self.carried_since = 0
             #     if waste_to_drop :
@@ -1230,7 +1261,7 @@ class GreenRobot(Robot):
         if self.has_memory and knowledge.known_wastes:
             return self._go_to_closest_waste(knowledge)
 
-        # ── P8: Epsilon broadcast ─────────────────────────────────────────
+        # ── P8: Periodic/epsilon broadcast ────────────────────────────────
         broadcast_action = self._try_periodic_broadcast()
         if broadcast_action is not None:
             return broadcast_action
@@ -1249,17 +1280,21 @@ class YellowRobot(Robot):
     """
     Yellow robot — operates in zones 1 and 2.
 
-    Deliberation priority order:
-      P1   Transform 2 yellow → 1 red
-      P2   Drop waste because peer accepted exchange
-      P3   Pick up yellow waste on current cell
-      P4   Flush pending outgoing messages
-      P5   Deposit red waste at z2/z3 boundary
-      P6   Propose exchange if carrying too long  [can_communicate only]
-      P6b  Handle wait_answer
-      P7   Navigate to nearest known yellow waste  [has_memory only]
-      P8   Epsilon broadcast  [can_communicate only]
-      P9   Random walk (is_random) or boundary patrol / exploration
+    Deliberation priority order (as implemented in deliberate):
+      P1    Transform 2 yellow → 1 red
+      P2    Drop waste because peer accepted exchange
+      P3    Pick up yellow waste on current cell
+      P3.5a Abort rendezvous if timeout reached                       [can_communicate only]
+      P3.5b Hand off via PROPOSE_TO_GIVE when partner is adjacent     [can_communicate only]
+      P4    Flush pending outgoing messages                           [can_communicate only]
+      P5    Deposit red waste at z2/z3 boundary
+      P5.5  Travel to rendezvous meeting cell                         [can_communicate only]
+      P6    Propose exchange if carrying too long                     [can_communicate only]
+      P6.5  Initiate rendezvous in end-game                           [can_communicate only]
+      P6b   Handle wait_answer                                        [can_communicate only]
+      P7    Navigate to nearest known yellow waste                    [has_memory only]
+      P8    Periodic or epsilon broadcast                             [can_communicate only]
+      P9    Random walk (is_random) or boundary patrol / exploration
     """
 
     def __init__(self, model: Model, robot_behavior: RobotBehavior):
@@ -1306,8 +1341,9 @@ class YellowRobot(Robot):
                 self.drop_object = False
                 self.carried_since = 0
                 self.last_dropped_pos = pos
-                return PutDown(waste_to_drop) #only drop waste of the same color as the robot
+                return PutDown(waste_to_drop)  # only drop waste of the same color as the robot
 
+        # carry_yellow is False only when already carrying a transformed red.
         carry_yellow = True if not carried_wastes or carried_wastes[0].waste_type == Color.YELLOW else False
         # ── P3: Pick up yellow waste on current cell ──────────────────────
         yellow_wastes = current_cell_data.get("wastes", [])
@@ -1327,14 +1363,12 @@ class YellowRobot(Robot):
         if (self.rendezvous_active
                 and self.rendezvous_partner_id is not None
                 and self.rendezvous_pos is not None):
-            # Locate partner in neighbourhood
             partner = None
             for r in self.knowledge.robots_neighborhood:
                 if r.unique_id == self.rendezvous_partner_id:
                     partner = r
                     break
             if partner is not None and self.rendezvous_role == "initiator":
-                # I hand off my singleton to partner via standard exchange
                 if len(self.carrying) == 1 and self.carrying[0].waste_type == self.color:
                     self.messages_to_send.append(
                         self._prepare_exchange_proposal(
@@ -1366,7 +1400,7 @@ class YellowRobot(Robot):
         if (self.rendezvous_active
                 and self.rendezvous_pos is not None
                 and self.rendezvous_partner_id is not None):
-            # Sanity: if I'm no longer a singleton, abort
+            # Sanity: abort if carrying state is no longer singleton-own-colour
             if len(self.carrying) != 1 or self.carrying[0].waste_type != self.color:
                 self._queue_rendezvous_end("state_changed")
                 self._reset_rendezvous()
@@ -1397,7 +1431,8 @@ class YellowRobot(Robot):
 
 
 
-        # ── P6: Propose exchange if stuck carrying for too long ───────────
+        # ── P6: Propose exchange if stuck carrying for too long
+        #        (disabled during rendezvous to avoid protocol races) ──────
         if (
             self.can_communicate
             and carried_wastes
@@ -1415,9 +1450,11 @@ class YellowRobot(Robot):
                 )
                 self.wait_answer = True
                 return self._flush_messages()
-            # else: #emergency drop
+            # Emergency-drop branch intentionally removed (see README §5.3.3,
+            # ablation note):
+            # else:
             #     self.must_move = True
-            #     self.carried_since = 0                
+            #     self.carried_since = 0
             #     if waste_to_drop:
             #         self._queue_drop_notification(pos, waste_to_drop)
             #         self.last_dropped_pos = pos
@@ -1434,7 +1471,7 @@ class YellowRobot(Robot):
         if self.has_memory and knowledge.known_wastes:
             return self._go_to_closest_waste(knowledge)
 
-        # ── P8: Epsilon broadcast ─────────────────────────────────────────
+        # ── P8: Periodic/epsilon broadcast ────────────────────────────────
         broadcast_action = self._try_periodic_broadcast()
         if broadcast_action is not None:
             return broadcast_action
@@ -1465,18 +1502,25 @@ class RedRobot(Robot):
     """
     Red robot — operates in zones 1, 2 and 3.
 
-    Deliberation priority order:
+    Deliberation priority order (as implemented in deliberate):
       P1   Pick up red waste on current cell  (only if hands empty)
       P2   Drop waste because peer accepted exchange
-      P3   Flush pending outgoing messages
-      P3b  Handle wait_answer
+      P3   Flush pending outgoing messages                            [can_communicate only]
+      P3b  Handle wait_answer                                         [can_communicate only;
+                                                                       currently unreachable — red never sets
+                                                                       wait_answer; kept for symmetry with the
+                                                                       green/yellow protocol]
       P4   Find disposal zone if unknown  (move east / explore)
       P5   Deposit at disposal zone if carrying and on it
-      P6   Carry red waste towards disposal zone  [has_memory only]
-      P6b  Propose exchange if carrying too long  [can_communicate only]
-      P7   Navigate to nearest known red waste  [has_memory only]
-      P8   Epsilon broadcast  [can_communicate only]
+      P6   Carry red waste towards disposal zone                      [has_memory only]
+      P7   Navigate to nearest known red waste                        [has_memory only]
+      P8   Periodic or epsilon broadcast                              [can_communicate only]
       P9   Random walk (is_random) or boundary patrol / exploration
+
+    Note: no P6/P6.5 (exchange proposal, rendezvous). Red robots operate
+    alone — they deposit individual red wastes rather than merging pairs,
+    so the singleton-deadlock that motivates the rendezvous protocol does
+    not arise.
     """
 
     def __init__(self, model: Model, robot_behavior: RobotBehavior):
@@ -1523,7 +1567,7 @@ class RedRobot(Robot):
         if flush is not None:
             return flush
 
-        # ── P3b: Handle wait_answer ───────────────────────────────────────
+        # ── P3b: Handle wait_answer (unreachable in current code path) ────
         if self.wait_answer:
             action = self._handle_wait_answer()
             if action is not None:
@@ -1550,7 +1594,7 @@ class RedRobot(Robot):
         if self.has_memory and knowledge.known_wastes:
             return self._go_to_closest_waste(knowledge)
 
-        # ── P8: Epsilon broadcast ─────────────────────────────────────────
+        # ── P8: Periodic/epsilon broadcast ────────────────────────────────
         broadcast_action = self._try_periodic_broadcast()
         if broadcast_action is not None:
             return broadcast_action

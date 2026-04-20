@@ -37,7 +37,7 @@ DEFAULT_PARAMS = dict(
     n_green_wastes=20,
     n_yellow_wastes=10,
     n_red_wastes=5,
-    max_step=200,
+    max_step=400,
     seed=None,
     robots_behavior="Communication",
 )
