@@ -60,7 +60,7 @@ class ActionType(Enum):
     PICK_UP = "pick_up"
     PUT_DOWN = "put_down"
     TRANSFORM = "transform"
-    GIVE = "give"
+    SEND_MESSAGES = "send_messages"
 
 
 class Action:
@@ -111,5 +111,5 @@ class Transform(Action):
 
 class SendMessages(Action):
     def __init__(self, messages: list):
-        super().__init__(ActionType.GIVE)
+        super().__init__(ActionType.SEND_MESSAGES)
         self.messages = messages
