@@ -4,12 +4,9 @@ from enum import Enum
 
 
 class MessagePerformative(Enum):
-    """MessagePerformative enum class.
-    Enumeration containing the possible message performative.
-    """
     PROPOSE_TO_GIVE = 101.1
-    PROPOSE_TO_TAKE = 101.2   
-    
+    PROPOSE_TO_TAKE = 101.2
+
     ACCEPT_EXCHANGE = 102.1
     REJECT_EXCHANGE = 103.1
 
@@ -18,8 +15,7 @@ class MessagePerformative(Enum):
     ARGUE = 105
     QUERY_REF = 106
     INFORM_REF = 107
-
+    INFORM_DROP = 108       
+    INFORM_PICKUP = 109      
     def __str__(self):
-        """Returns the name of the enum item.
-        """
         return '{0}'.format(self.name)

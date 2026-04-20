@@ -20,6 +20,7 @@ from abc import ABC, abstractmethod
 from random import randint
 from typing import Any
 
+from altair import Position
 from ipyvuetify import Col
 
 from communication import CommunicatingAgent
@@ -177,6 +178,9 @@ class Robot(CommunicatingAgent, ABC):
 
     def pick_up(self, waste: Waste) -> Action:
         self.nb_wastes_collected += 1
+        # Notify same-color peers to remove this position from their targets
+        if self.pos is not None:
+            self._queue_pickup_notification(self.pos)
         return PickUp(waste)
 
     # ── Perception ────────────────────────────────────────────────────────
@@ -371,11 +375,10 @@ class Robot(CommunicatingAgent, ABC):
                 payload = message.get_content()
                 if not isinstance(payload, dict):
                     continue
-
                 sender_id = payload.get("sender_id")
-                sender_color = payload.get("sender_color")  # NEW
+                sender_color = payload.get("sender_color")  
                 msg_timestamp: int = payload.get("timestamp", -1)
-                known_wastes = payload.get("known_wastes")
+                known_wastes = payload.get("known_wastes")            
 
                 # Only ingest same-color waste positions — other-color peers
                 # track wastes that aren't targets for this robot.
@@ -395,6 +398,34 @@ class Robot(CommunicatingAgent, ABC):
                         "wastes": carried if isinstance(carried, list) else [],
                         "timestamp": msg_timestamp,
                     }
+            # ── Border drop announcement ───────────────────────────────────
+            elif performative == MessagePerformative.INFORM_DROP:
+                payload = message.get_content()
+                if not isinstance(payload, dict):
+                    continue
+                waste_color = payload.get("waste_color")
+                pos_raw = payload.get("pos")
+                msg_timestamp: int = payload.get("timestamp", -1)
+                if waste_color == self.color.value and pos_raw is not None:
+                    pos = tuple(pos_raw) if not isinstance(pos_raw, tuple) else pos_raw
+                    if msg_timestamp > self.knowledge.last_seen.get(pos, -1):
+                        self.knowledge.last_seen[pos] = msg_timestamp
+                        self.knowledge.known_wastes.add(pos)
+
+            # ── Peer pickup announcement ───────────────────────────────────
+            elif performative == MessagePerformative.INFORM_PICKUP:
+                payload = message.get_content()
+                if not isinstance(payload, dict):
+                    continue
+                sender_color = payload.get("sender_color")
+                pos_raw = payload.get("pos")
+                msg_timestamp: int = payload.get("timestamp", -1)
+                if sender_color == self.color.value and pos_raw is not None:
+                    pos = tuple(pos_raw) if not isinstance(pos_raw, tuple) else pos_raw
+                    # >= so pickup wins ties vs same-timestamp sightings (deletion wins)
+                    if msg_timestamp >= self.knowledge.last_seen.get(pos, -1):
+                        self.knowledge.last_seen[pos] = msg_timestamp
+                        self.knowledge.known_wastes.discard(pos)
 
             # ── Incoming exchange proposal ─────────────────────────────────
             elif performative == MessagePerformative.PROPOSE_TO_GIVE:
@@ -440,6 +471,65 @@ class Robot(CommunicatingAgent, ABC):
             # ── Our proposal was rejected → stop waiting ───────────────────
             elif performative == MessagePerformative.REJECT_EXCHANGE:
                 self.wait_answer = False
+
+    def _queue_pickup_notification(self, pos: tuple[int, int] | Position):
+        """Queue an INFORM_PICKUP for same-color peers.
+
+        Called as a side-effect when this robot picks up a waste of its own color.
+        Peers will remove `pos` from their known_wastes set on receipt.
+        Does not consume a step: the queued messages are flushed by P4 next step.
+        """
+        if not self.can_communicate:
+            return
+        payload = {
+            "sender_id": self.unique_id,
+            "sender_color": self.color.value,
+            "pos": pos,
+            "timestamp": self.knowledge.round,
+        }
+        for agent in self.model.agents:
+            if agent is self or not isinstance(agent, Robot):
+                continue
+            if agent.color != self.color:
+                continue
+            self.messages_to_send.append(
+                Message(
+                    self.get_name(),
+                    agent.get_name(),
+                    MessagePerformative.INFORM_PICKUP,
+                    payload,
+                )
+            )
+
+    def _queue_drop_notification(self, pos: tuple[int, int], waste: Waste):
+        """Queue an INFORM_DROP for robots whose color matches the dropped waste.
+
+        Called as a side-effect on border drops (P5) and emergency drops (P6).
+        Does not consume a step: the queued messages are flushed by P4 next step.
+        """
+        if not self.can_communicate or waste is None:
+            return
+        waste_color = waste.waste_type
+        payload = {
+            "sender_id": self.unique_id,
+            "sender_color": self.color.value,
+            "waste_color": waste_color.value,
+            "pos": pos,
+            "timestamp": self.knowledge.round,
+        }
+        for agent in self.model.agents:
+            if agent is self or not isinstance(agent, Robot):
+                continue
+            if agent.color != waste_color:
+                continue
+            self.messages_to_send.append(
+                Message(
+                    self.get_name(),
+                    agent.get_name(),
+                    MessagePerformative.INFORM_DROP,
+                    payload,
+                )
+            )
 
     # ── Agent cycle ───────────────────────────────────────────────────────
 
@@ -715,6 +805,7 @@ class GreenRobot(Robot):
             and carried_wastes[0].waste_type == Color.YELLOW
         ):
             if knowledge.max_x_zone is not None and pos[0] == knowledge.max_x_zone:
+                self._queue_drop_notification(pos, carried_wastes[0]) 
                 self.carried_since = 0
                 return PutDown(carried_wastes[0])
             return self._move_in_direction((1, 0), knowledge)
@@ -741,6 +832,7 @@ class GreenRobot(Robot):
                 self.must_move = True
                 self.carried_since = 0
                 if waste_to_drop :
+                    self._queue_drop_notification(pos, waste_to_drop)
                     self.last_dropped_pos = pos
                     return PutDown(waste_to_drop)
 
@@ -848,6 +940,7 @@ class YellowRobot(Robot):
         ):
             if knowledge.max_x_zone is not None and pos[0] == knowledge.max_x_zone:
                 self.carried_since = 0
+                self._queue_drop_notification(pos, carried_wastes[0]) 
                 self.knowledge.must_explore = Robot.EXPLORE_DURATION + 1
                 return PutDown(carried_wastes[0])
             return self._move_in_direction((1, 0), knowledge)
@@ -869,10 +962,11 @@ class YellowRobot(Robot):
                 )
                 self.wait_answer = True
                 return self._flush_messages()
-            else:
+            else: #emergency drop
                 self.must_move = True
                 self.carried_since = 0                
                 if waste_to_drop:
+                    self._queue_drop_notification(pos, waste_to_drop)
                     self.last_dropped_pos = pos
                     return PutDown(waste_to_drop)
 
