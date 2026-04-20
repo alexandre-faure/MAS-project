@@ -2,60 +2,62 @@
 
 Project related to the Multiple Agents Systems lecture at CentraleSupelec. The purpose of the project is to implement a simple multi-agent system where multiple robots have to collaborate to achieve a common goal: to collect radioactive waste in a grid environment. The robots have to navigate the grid, collect the waste, transform it, then bring it to a specific location.
 
-
 ## Table of Contents
 
 0. [**Introduction**](#introduction)
-    * [Project Overview](#project-overview)
-    * [Technical Contributions](#technical-contributions)
-    * [Technical Stack](#technical-stack)
-2. [**Setup**](#1-setup)
-    * [1.1 Prerequisites](#11-prerequisites)
-    * [1.2 Running the Model](#12-running-the-model)
-    * [1.3 Scenario Comparison Mode](#13-running-the-model-with-the-comparisons-of-three-different-scenari)
-3. [**Model Hypothesis**](#2-model-hypothesis)
-4. [**Model Design**](#3-model-design)
-    * [3.1 Robot Typology](#31-robots-typology)
-    * [3.2 Waste Transformation](#32-waste-transformation)
-5. [**Metrics**](#4-metrics)
-    * [4.1 Completion Metrics](#41-completion-metrics)
-    * [4.2 Speed Metrics](#42-speed-metrics)
-    * [4.3 Load Balancing Metrics](#43-load-balancing-metrics)
-6. [**Model Evaluation**](#5-model-evaluation)
-    * [5.1 Settings](#51-settings)
-    * [5.2 Scenarios](#52-scenarios)
-    * [5.3 Scenario 1: Random Behavior](#53-first-scenario--random-behavior)
-    * [5.4 Scenario 2: Knowledge-Based Behavior](#54-knowledge-based-behavior)
-    * [5.5 Scenario 3: Communication-Based Behavior](#55-communication-based-behavior)
-        * [5.5.1 Message-Passing Model](#551-message-passing-model)
-        * [5.5.2 Periodic Knowledge Broadcast](#552-periodic-knowledge-broadcast-inform_ref)
-        * [5.5.3 Perception Invalidation](#553-perception-invalidation-inform_pickup)
-        * [5.5.4 Production Information](#554-production-information-inform_drop)
-        * [5.5.5 Local Waste Hand-off](#555-local-waste-hand-off-propose_to_give-family)
-        * [5.5.6 Remote Hand-off: Rendezvous Protocol](#556-remote-hand-off--rendezvous-protocol)
-        * [5.5.7 Deliberation Priorities](#557-deliberation-priorities)
-        * [5.5.8 Expected Impact on Metrics](#558-expected-effect-on-the-metrics)
-7. [**6. Results**](#6-results)
-8. [**Authors**](#authors)
+   - [Project Overview](#project-overview)
+   - [Technical Contributions](#technical-contributions)
+   - [Technical Stack](#technical-stack)
+1. [**Setup**](#1-setup)
+   - [1.1 Prerequisites](#11-prerequisites)
+   - [1.2 Running the Model](#12-running-the-model)
+   - [1.3 Scenario Comparison Mode](#13-running-the-model-with-the-comparisons-of-three-different-scenari)
+2. [**Model Hypothesis**](#2-model-hypothesis)
+3. [**Model Design**](#3-model-design)
+   - [3.1 Robot Typology](#31-robots-typology)
+   - [3.2 Waste Transformation](#32-waste-transformation)
+4. [**Metrics**](#4-metrics)
+   - [4.1 Completion Metrics](#41-completion-metrics)
+   - [4.2 Speed Metrics](#42-speed-metrics)
+   - [4.3 Load Balancing Metrics](#43-load-balancing-metrics)
+5. [**Model Evaluation**](#5-model-evaluation)
+   - [5.1 Settings](#51-settings)
+   - [5.2 Scenarios](#52-scenarios)
+   - [5.3 Scenario 1: Random Behavior](#53-first-scenario--random-behavior)
+   - [5.4 Scenario 2: Knowledge-Based Behavior](#54-knowledge-based-behavior)
+   - [5.5 Scenario 3: Communication-Based Behavior](#55-communication-based-behavior)
+     - [5.5.1 Message-Passing Model](#551-message-passing-model)
+     - [5.5.2 Periodic Knowledge Broadcast](#552-periodic-knowledge-broadcast-inform_ref)
+     - [5.5.3 Perception Invalidation](#553-perception-invalidation-inform_pickup)
+     - [5.5.4 Production Information](#554-production-information-inform_drop)
+     - [5.5.5 Local Waste Hand-off](#555-local-waste-hand-off-propose_to_give-family)
+     - [5.5.6 Remote Hand-off: Rendezvous Protocol](#556-remote-hand-off--rendezvous-protocol)
+     - [5.5.7 Deliberation Priorities](#557-deliberation-priorities)
+     - [5.5.8 Expected Impact on Metrics](#558-expected-effect-on-the-metrics)
+6. [**6. Results**](#6-results)
+7. [**Authors**](#authors)
+
 ---
 
 ## Introduction
 
 ### Project Overview
+
 The core of this research focuses on the self-organization of heterogeneous agents tasked with the collection, multi-stage transformation, and final disposal of radioactive waste. Operating in a tiered environment (Green, Yellow, and Red zones), the system evaluates how different levels of agent intelligence—ranging from purely stochastic behavior to FIPA-compliant communication protocols—impact collective efficiency and resource management.
 
 ### Technical Contributions
+
 - **Hierarchical Agent Architecture**: Implementation of specialized robot classes (Green, Yellow, Red) with distinct operational constraints, zone restrictions, and cooperative dependencies.
 
-- **Deliberation Logic**: Development of a priority-based decision engine that manages state transitions, from random exploration to targeted patrolling and collective perception.Distributed 
+- **Deliberation Logic**: Development of a priority-based decision engine that manages state transitions, from random exploration to targeted patrolling and collective perception.Distributed
 
 - **Communication Protocol**: A messaging framework based on FIPA standards, featuring:
-    - **Shared Epistemic States**: Collective knowledge synchronization to eliminate redundant exploration.
-    - **Dynamic Deadlock Resolution**: An end-game `Rendezvous` Protocol using peer-to-peer negotiation and midpoint convergence to handle isolated resources.
-    - **Quantitative Performance Analysis**: An evaluation framework using metrics such as Waste Lifespan ($ls_k$), Exploration Efficiency ($expl_k$), and Load Balancing ($load_k$) to compare emergent behaviors across scenarios.
-
+  - **Shared Epistemic States**: Collective knowledge synchronization to eliminate redundant exploration.
+  - **Dynamic Deadlock Resolution**: An end-game `Rendezvous` Protocol using peer-to-peer negotiation and midpoint convergence to handle isolated resources.
+  - **Quantitative Performance Analysis**: An evaluation framework using metrics such as Waste Lifespan ($ls_k$), Exploration Efficiency ($expl_k$), and Load Balancing ($load_k$) to compare emergent behaviors across scenarios.
 
 ### Technical stack
+
 The model is built using **Python 3.10+** and using the **Mesa** library for agent-based modeling and **Solara** for real-time web-based visualization and performance monitoring.
 
 ---
@@ -80,7 +82,7 @@ solara run run.py
 
 ### 1.3. Running the model with the comparisons of three different scenari
 
-Three scenari: Random VS   Patrol+Memory and no communication   VS Patrol+Memory+Communication
+Three scenari: Random VS Patrol+Memory and no communication VS Patrol+Memory+Communication
 To run the model, simply execute the following command from the repository ̀`group1_robot_mission_MAS2026` directory:
 
 ```bash
@@ -102,7 +104,8 @@ Nonetheless, we had to make some assumptions to implement the model. Here are th
 ## 3. Model design
 
 ### 3.1. Robots typology
-Each of the three robot types are implemented in separate classes that all implement a common interface `Robot`. 
+
+Each of the three robot types are implemented in separate classes that all implement a common interface `Robot`.
 
 Here are the specificities of each robot type:
 
@@ -128,19 +131,17 @@ flowchart TD
 
 To measure and objectively compare the performance of the model under different scenarios, we will define several metrics. For synthetic purpose, we denote $\mathcal C = \{green, yellow, red\}$ the set of waste types and robot types.
 
-
 |                    Notation                    | Metric                               | Description                                                                                                                                                                                                                                    |
 | :--------------------------------------------: | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
- |
+|                                                |
 |                      $T$                       | Scenario duration                    | Number of steps to conclude the scenario.                                                                                                                                                                                                      |
 | $n_{k}(t)$ with $k \in \{green, yellow, red\}$ | Number of wastes collected over time | The number of wastes collected at each time step. This metric allows us to see how the collection process evolves over time and if there are any bottlenecks or periods of inactivity.                                                         |
 |   $E_k$ with $k \in \{green, yellow, red\}$    | Exploration ratio                    | The ratio of time steps where robots are exploring (moving while searching for a waste) to the total number of time steps. This metric gives us insight into how much time the robots spend exploring the environment versus collecting waste. |
-|   $ls_k$ with $k \in \{green, yellow, red\}$   | Average lifespan of wastes           | The average number of time steps that a waste remains in the environment before being fully processed (collected and transformed). This metric helps us understand how quickly the waste is being processed by the robots.   
+|   $ls_k$ with $k \in \{green, yellow, red\}$   | Average lifespan of wastes           | The average number of time steps that a waste remains in the environment before being fully processed (collected and transformed). This metric helps us understand how quickly the waste is being processed by the robots.                     |
 
 ### 4.1. Completion metrics
 
 $T$: the scenario duration (number of steps to conclude the scenario).
-
 
 $C_f$: the final ratio of collected waste.
 
@@ -169,10 +170,10 @@ Where $T_{exploration}$ is the total time spent by robots of type $k$ exploring 
 
 ### 4.3. Load balancing metrics
 
-$load_k$ with $k \in \mathcal C$: the load balancing ratio. This metric gives us an idea of how well the workload is distributed among the robots $R_{col}$ of a given color *col*.
+$load_k$ with $k \in \mathcal C$: the load balancing ratio. This metric gives us an idea of how well the workload is distributed among the robots $R_{col}$ of a given color _col_.
 
-
-$$ load_k = \frac{max_{R_{col}}(N(R_{col}))}
+$$
+load_k = \frac{max_{R_{col}}(N(R_{col}))}
 
 {mean_{R_{col}}(N(R_{col}))}
 $$
@@ -180,6 +181,7 @@ $$
 Where $N(R_{col})$ is the number of wastes of color $col$ collected by all the robots of a given color. A load balancing ratio close to 1 indicates that the workload is evenly distributed among the robots, while a ratio far from 1 indicates that one or a few robots are doing most of the work.
 
 ---
+
 ## 5. Model evaluation
 
 ### 5.1. Settings
@@ -188,15 +190,11 @@ We freeze some of the settings of the model:
 
 - Grid size ($w$ x $h$): 18 x 14
 - Number of green wastes: 20
-- Max number of steps: 400
-
-Based on the problem, we will consider that each robot has a given cost per step. This is justified because the higher the radioactivity of the area, the more the robot will be expensive to maintain and operate. We will consider the following costs for each type of robot:
-
-- Green robots: 1 unit of cost per step
-- Yellow robots: 2 units of cost per step
-- Red robots: 3 units of cost per step
+- Max number of steps: 500
+- Number of robots: 4 G, 3 Y, 2 R
 
 ### 5.2. Scenarios
+
 We will consider 3 main scenarios with different robots behaviors:
 
 - **Scenario 1 ($S^{rand}$)**: Random behavior: robots move randomly in the environment and collect waste whenever they find it.
@@ -208,6 +206,7 @@ We will denote $G$, $Y$ and $R$, respectively a green, yellow and red robot. We 
 Capabilities changes accross the different scenari.Between the different behaviors, new capabilities will be written in <p style="display:inline;color:green;">green</p> and upgraded capabilities will be written in <p style="display:inline;color:orange">orange</p>.
 
 ---
+
 ### 5.3. First scenario : Random behavior
 
 When in **random behavior**, the robots don't have any memory and cannot communicate. Thus, at each deliberation step, here is what they do:
@@ -226,11 +225,13 @@ When in **random behavior**, the robots don't have any memory and cannot communi
 3. Else, move randomly.
 
 ---
+
 ### 5.4. Knowledge based behavior
 
 When in **knowledge based behavior**, the robots have a basic knowledge of the environment and try to move towards the areas where they are more likely to find waste. They also have a memory, but no communication.
 
 Note that with memory, $Y$ and $R$ robots will have 2 research modes:
+
 - **exploration mode**: exploring randomly their environment by prefering cells that have never been visited before, or that haven't been visited for a long time.
 - **patrol mode**: exploring along the western border of the color $c$ area (y-axis) to find waste. This will facilitate the search for wastes that were transformed by robots of the previous color.
 
@@ -247,12 +248,12 @@ Thus, at each deliberation step, here is what they do:
 5. Else, they <p style="display:inline;color:orange">explore randomly by prefering cells that have never been visited before, or that haven't been visited for a long time.</p>
 
 **$Y$ robots**:
+
 1. If they carry 2 yellow wastes, they transform them into a red waste.
 2. Else, if they carry a red waste, they move to the border to drop it.
 3. Else, if a yellow waste is in their cell, they pick it up.
 4. <p style="display:inline;color:green">Else, if they know a cell with a yellow waste, they move towards it.</p>
 5. <p style="display:inline;color:green">Depending on their research mode</p>
-
    1. <p style="display:inline;color:orange">If they are in exploration mode, they explore randomly by prefering cells that have never been visited before, or that haven't been visited for a long time.</p>
    2. <p style="display:inline;color:green">If they are in patrol mode, they go to the border, then they explore along the y-axis.</p>
 
@@ -263,7 +264,6 @@ Thus, at each deliberation step, here is what they do:
 3. Else, if they are on the disposal cell and carrying a red waste, they drop it.
 4. <p style="display:inline;color:green">Else, if they know a cell with a red waste, they move towards it.</p>
 5. <p style="display:inline;color:green">Depending on their research mode</p>
-   
    1. <p style="display:inline;color:orange">If they are in exploration mode, they explore randomly by prefering cells that have never been visited before, or that haven't been visited for a long time.</p>
    2. <p style="display:inline;color:green">If they are in patrol mode, they go to the border, then they explore along the y-axis.</p>
 
@@ -281,10 +281,10 @@ when only a single matching waste remains accessible to a given robot.
 #### 5.5.1. Message-passing model
 
 Reception is
-*asynchronous* and *free*: at the very beginning of every step each robot
+_asynchronous_ and _free_: at the very beginning of every step each robot
 drains its inbox through `_process_incoming_messages`, updating its
 `Knowledge` object and possibly queueing reply messages; no action budget is
-consumed. Emission, by contrast, is *synchronous* with the deliberation
+consumed. Emission, by contrast, is _synchronous_ with the deliberation
 cycle: queued outgoing messages are flushed through a dedicated `SendMessages`
 action, which (because each robot performs exactly one action per step)
 precludes any concurrent movement, pickup, drop or transformation. Messages
@@ -294,15 +294,15 @@ simulations.
 
 Five performatives are used, grouped into three independent protocols.
 
-| Performative            | Direction                          | Purpose |
-|------------------------ |------------------------------------|---------|
-| `INFORM_REF`            | unicast to every other robot       | periodic knowledge broadcast |
-| `INFORM_PICKUP`         | unicast to same-colour peers       | invalidate a stale waste target |
-| `INFORM_DROP`           | unicast to downstream-colour peers | advertise a newly produced waste at a zone border |
-| `PROPOSE_TO_GIVE` / `ACCEPT_EXCHANGE` / `REJECT_EXCHANGE` | peer-to-peer | local waste hand-off |
-| `REQUEST_RENDEZVOUS` / `ACCEPT_RENDEZVOUS` / `CONFIRM_RENDEZVOUS` / `END_RENDEZVOUS` | peer-to-peer and same-colour broadcast | remote waste hand-off (end-game) |
+| Performative                                                                         | Direction                              | Purpose                                           |
+| ------------------------------------------------------------------------------------ | -------------------------------------- | ------------------------------------------------- |
+| `INFORM_REF`                                                                         | unicast to every other robot           | periodic knowledge broadcast                      |
+| `INFORM_PICKUP`                                                                      | unicast to same-colour peers           | invalidate a stale waste target                   |
+| `INFORM_DROP`                                                                        | unicast to downstream-colour peers     | advertise a newly produced waste at a zone border |
+| `PROPOSE_TO_GIVE` / `ACCEPT_EXCHANGE` / `REJECT_EXCHANGE`                            | peer-to-peer                           | local waste hand-off                              |
+| `REQUEST_RENDEZVOUS` / `ACCEPT_RENDEZVOUS` / `CONFIRM_RENDEZVOUS` / `END_RENDEZVOUS` | peer-to-peer and same-colour broadcast | remote waste hand-off (end-game)                  |
 
-Even though `INFORM_REF` is *unicast* in the FIPA sense (one `Message` object
+Even though `INFORM_REF` is _unicast_ in the FIPA sense (one `Message` object
 per recipient), each broadcast round iterates over every robot in the model;
 operationally it behaves as a full broadcast. The same-colour filter is
 applied by the **receiver** on the payload contents rather than by the sender
@@ -351,7 +351,7 @@ Z1, or when a yellow robot drops a transformed red waste at column
 colour matches the **dropped** waste (i.e., yellow peers in the first case,
 red peers in the second). Receivers add the drop position to their
 `known_wastes` set, again subject to timestamp freshness. In effect, each
-drop at a zone border acts as an explicit *production event* that wakes up a
+drop at a zone border acts as an explicit _production event_ that wakes up a
 downstream robot even when the latter is in patrol mode far from the waste.
 Without this message the downstream robot would discover the waste only by
 random exploration along the boundary — the main bottleneck observed under
@@ -387,12 +387,12 @@ opposite sides of their zone. To handle this case, green and yellow robots
 rendezvous protocol implemented as a small state machine with the following
 roles and states.
 
-| State              | Initiator side                    | Partner side                      |
-|--------------------|-----------------------------------|-----------------------------------|
-| IDLE               | `rendezvous_active == False`      | `rendezvous_active == False`      |
-| REQUESTING         | request sent, awaiting `ACCEPT`   | —                                 |
-| TENTATIVE_PARTNER  | —                                 | `ACCEPT` sent, awaiting `CONFIRM` |
-| COMMITTED          | `CONFIRM` sent and received       | `CONFIRM` received with own id    |
+| State             | Initiator side                  | Partner side                      |
+| ----------------- | ------------------------------- | --------------------------------- |
+| IDLE              | `rendezvous_active == False`    | `rendezvous_active == False`      |
+| REQUESTING        | request sent, awaiting `ACCEPT` | —                                 |
+| TENTATIVE_PARTNER | —                               | `ACCEPT` sent, awaiting `CONFIRM` |
+| COMMITTED         | `CONFIRM` sent and received     | `CONFIRM` received with own id    |
 
 Transitions and guards (see `_in_endgame`, `_find_endgame_peer`,
 `_compute_meeting_cell` and the `REQUEST_/ACCEPT_/CONFIRM_/END_RENDEZVOUS`
@@ -419,7 +419,7 @@ handlers):
    colour accepts tentatively and replies with `ACCEPT_RENDEZVOUS`. Multiple
    peers may accept simultaneously if the initiator broadcast reached more
    than one: the initiator resolves this by sending `CONFIRM_RENDEZVOUS` to
-   *all* same-colour peers, carrying the selected `partner_id`. The chosen
+   _all_ same-colour peers, carrying the selected `partner_id`. The chosen
    partner's state is promoted to COMMITTED; all other tentative acceptors
    reset to IDLE.
 
@@ -454,20 +454,20 @@ fixed order. The following table summarises the per-colour priority list
 implemented in `deliberate`; priorities that are conditional on
 `can_communicate` are marked `(C)`.
 
-| Priority | Green                                              | Yellow                                             | Red                                                |
-|----------|----------------------------------------------------|----------------------------------------------------|----------------------------------------------------|
-| P1       | 2 green → 1 yellow                                 | 2 yellow → 1 red                                   | Pick up red if hands empty                         |
-| P2       | Drop after `ACCEPT_EXCHANGE`                       | Drop after `ACCEPT_EXCHANGE`                       | Drop after `ACCEPT_EXCHANGE`                       |
-| P3       | Pick up green                                      | Pick up yellow                                     | Flush outgoing messages `(C)`                      |
-| P3.5     | Rendezvous timeout / convergence hand-off `(C)`    | Rendezvous timeout / convergence hand-off `(C)`    | `wait_answer` handling `(C)`                       |
-| P4       | Flush outgoing messages `(C)`                      | Flush outgoing messages `(C)`                      | Explore east to find disposal                      |
-| P5       | Drop yellow at Z1/Z2 border                        | Drop red at Z2/Z3 border                           | Deposit at disposal                                |
-| P5.5     | Travel to meeting cell `(C)`                       | Travel to meeting cell `(C)`                       | Carry red towards disposal                         |
-| P6       | Local exchange proposal `(C)`                      | Local exchange proposal `(C)`                      | (not applicable)                                   |
-| P6.5     | End-game rendezvous initiation `(C)`               | End-game rendezvous initiation `(C)`               | (not applicable)                                   |
-| P7       | Navigate to nearest known green waste              | Navigate to nearest known yellow waste             | Navigate to nearest known red waste                |
-| P8       | Epsilon / periodic broadcast `(C)`                 | Epsilon / periodic broadcast `(C)`                 | Epsilon / periodic broadcast `(C)`                 |
-| P9       | Random / least-recently-visited exploration        | Boundary patrol / exploration                      | Boundary patrol / exploration                      |
+| Priority | Green                                           | Yellow                                          | Red                                 |
+| -------- | ----------------------------------------------- | ----------------------------------------------- | ----------------------------------- |
+| P1       | 2 green → 1 yellow                              | 2 yellow → 1 red                                | Pick up red if hands empty          |
+| P2       | Drop after `ACCEPT_EXCHANGE`                    | Drop after `ACCEPT_EXCHANGE`                    | Drop after `ACCEPT_EXCHANGE`        |
+| P3       | Pick up green                                   | Pick up yellow                                  | Flush outgoing messages `(C)`       |
+| P3.5     | Rendezvous timeout / convergence hand-off `(C)` | Rendezvous timeout / convergence hand-off `(C)` | `wait_answer` handling `(C)`        |
+| P4       | Flush outgoing messages `(C)`                   | Flush outgoing messages `(C)`                   | Explore east to find disposal       |
+| P5       | Drop yellow at Z1/Z2 border                     | Drop red at Z2/Z3 border                        | Deposit at disposal                 |
+| P5.5     | Travel to meeting cell `(C)`                    | Travel to meeting cell `(C)`                    | Carry red towards disposal          |
+| P6       | Local exchange proposal `(C)`                   | Local exchange proposal `(C)`                   | (not applicable)                    |
+| P6.5     | End-game rendezvous initiation `(C)`            | End-game rendezvous initiation `(C)`            | (not applicable)                    |
+| P7       | Navigate to nearest known green waste           | Navigate to nearest known yellow waste          | Navigate to nearest known red waste |
+| P8       | Epsilon / periodic broadcast `(C)`              | Epsilon / periodic broadcast `(C)`              | Epsilon / periodic broadcast `(C)`  |
+| P9       | Random / least-recently-visited exploration     | Boundary patrol / exploration                   | Boundary patrol / exploration       |
 
 The ordering enforces three invariants that we rely on for correctness and
 termination: (i) any productive action (transform, drop, pick up) precedes
@@ -509,7 +509,55 @@ Under communication we expect, relative to $S^{k}$:
 
 ## 6. Results
 
+Based on the settings detailed earlier, we obtained the following results:
 
+![](group1_robot_mission_MAS2026/output_benchmark/benchmark_timeseries.png)
+
+| Scénario      | Avg steps | CI95 low | CI95 high | Final ratio |
+| ------------- | --------- | -------- | --------- | ----------- |
+| Aléatoire     | 500.0     | 500.0    | 500.0     | 0.695       |
+| Mémoire       | 469.5     | 454.1    | 484.2     | 0.919       |
+| Communication | 221.9     | 210.2    | 236.5     | 0.982       |
+
+We clearly observe that the memory-based behavior brings significant improvements compared to the random behavior, and that the communication-based behavior brings further significant improvements compared to the memory-based behavior by allowing a better completion ratio and a much faster completion time.
+
+Regarding other metrics, here are the results:
+
+![](group1_robot_mission_MAS2026/output_benchmark/benchmark_final_metrics.png)
+
+| Métrique                 | Couleur | Scénario      | Valeur           |
+| ------------------------ | ------- | ------------- | ---------------- |
+| Durée de vie des déchets | Green   | Aléatoire     | 57.412 ± 4.046   |
+|                          |         | Mémoire       | 19.938 ± 0.780   |
+|                          |         | Communication | 30.753 ± 1.272   |
+|                          | Yellow  | Aléatoire     | 115.583 ± 5.167  |
+|                          |         | Mémoire       | 35.451 ± 1.608   |
+|                          |         | Communication | 31.043 ± 1.100   |
+|                          | Red     | Aléatoire     | 214.941 ± 20.612 |
+|                          |         | Mémoire       | 82.879 ± 3.643   |
+|                          |         | Communication | 61.515 ± 2.337   |
+| Ratio d'exploration      | Green   | Aléatoire     | 0.966 ± 0.001    |
+|                          |         | Mémoire       | 0.941 ± 0.004    |
+|                          |         | Communication | 0.723 ± 0.012    |
+|                          | Yellow  | Aléatoire     | 0.947 ± 0.001    |
+|                          |         | Mémoire       | 0.905 ± 0.007    |
+|                          |         | Communication | 0.531 ± 0.016    |
+|                          | Red     | Aléatoire     | 0.991 ± 0.001    |
+|                          |         | Mémoire       | 0.717 ± 0.020    |
+|                          |         | Communication | 0.194 ± 0.025    |
+| Load balancing           | Green   | Aléatoire     | 1.510 ± 0.055    |
+|                          |         | Mémoire       | 1.490 ± 0.050    |
+|                          |         | Communication | 1.382 ± 0.041    |
+|                          | Yellow  | Aléatoire     | 1.344 ± 0.040    |
+|                          |         | Mémoire       | 1.392 ± 0.038    |
+|                          |         | Communication | 1.195 ± 0.022    |
+|                          | Red     | Aléatoire     | 1.326 ± 0.040    |
+|                          |         | Mémoire       | 1.178 ± 0.027    |
+|                          |         | Communication | 1.093 ± 0.011    |
+
+Regarding other metrics, we observe drastic improvements in all metrics when moving from the random behavior to the memory-based behavior, and further significant improvements in all metrics when moving from the memory-based behavior to the communication-based behavior. The only exception concerns the average lifespan of green waste, which is higher in the communication-based than in the memory-based behavior. This is more likely due to the fact that in other scenarios, when a green waste is never transformed in a yellow waste (because of a lock), its duration is not counted in the average lifespan, whereas in the communication-based behavior, thanks to the rendezvous protocol, most of the green wastes are transformed and therefore counted in the average lifespan (but they are transformed later than in the memory-based behavior, which explains the increase of the average lifespan).
+
+The results justify the progressive implementation of new features to complement the basic random behavior, and show that communication is a key feature to improve the performance of the system, especially in terms of completion time and final ratio.
 
 ## Authors
 

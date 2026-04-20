@@ -14,6 +14,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import matplotlib.pyplot as plt
 import numpy as np
+from model import DEFAULT_PARAMS
 from tqdm import tqdm
 
 # ── path setup (needed for worker processes on Windows) ──────────────────────
@@ -272,8 +273,14 @@ def plot_results(aggs: dict, max_step: int, output_dir: str):
     x = np.arange(n_col)
 
     for key, title, ax in scalar_metrics:
+        print(f"\nMétrique: {title}")
         for i, scen in enumerate(SCENARIOS):
+            print(f"\t-> Scénario {LABELS[scen]}")
             means, ci_lows, ci_highs = aggs[scen][key]
+            for c in waste_colors:
+                print(
+                    f"\t\t{_color_label(c)}: {means[c]:.3f} ± {np.mean([means[c] - ci_lows[c], ci_highs[c] - means[c]]):.3f}"
+                )
             vals = np.array([means[c] for c in waste_colors])
             errs_low = np.array([means[c] - ci_lows[c] for c in waste_colors])
             errs_high = np.array([ci_highs[c] - means[c] for c in waste_colors])
@@ -311,6 +318,24 @@ def main():
         "--max-step", type=int, default=200, help="Max steps per run (default: 200)"
     )
     parser.add_argument(
+        "--n-green-robots",
+        type=int,
+        default=DEFAULT_PARAMS["n_green_robots"],
+        help="Number of green robots",
+    )
+    parser.add_argument(
+        "--n-yellow-robots",
+        type=int,
+        default=DEFAULT_PARAMS["n_yellow_robots"],
+        help="Number of yellow robots",
+    )
+    parser.add_argument(
+        "--n-red-robots",
+        type=int,
+        default=DEFAULT_PARAMS["n_red_robots"],
+        help="Number of red robots",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=None,
@@ -324,10 +349,28 @@ def main():
     )
     args = parser.parse_args()
 
+    # seeds = list(range(args.seeds,args.seeds+1))
     seeds = list(range(args.seeds))
-    tasks = [(scen, seed, args.max_step, {}) for scen in SCENARIOS for seed in seeds]
+    tasks = [
+        (
+            scen,
+            seed,
+            args.max_step,
+            {
+                "n_green_robots": args.n_green_robots,
+                "n_yellow_robots": args.n_yellow_robots,
+                "n_red_robots": args.n_red_robots,
+            },
+        )
+        for scen in SCENARIOS
+        for seed in seeds
+    ]
     total = len(tasks)
 
+    args.output_dir = os.path.join(
+        args.output_dir,
+        f"g{args.n_green_robots}_y{args.n_yellow_robots}_r{args.n_red_robots}",
+    )
     os.makedirs(args.output_dir, exist_ok=True)
 
     print(
