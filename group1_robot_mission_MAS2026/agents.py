@@ -40,6 +40,7 @@ from utils import (
     Wait,
     Zone,
     SendMessages,
+    BROADCAST_EVERY_K_ROUNDS
 )
 
 # Probability of broadcasting knowledge when nothing more urgent to do
@@ -142,6 +143,16 @@ class Robot(CommunicatingAgent, ABC):
         # ── Metrics ───────────────────────────────────────────────────────
         self.nb_exploring_steps: int = 0
         self.nb_wastes_collected: int = 0
+
+
+        # ── Rendezvous state (end-game singleton gathering) ─────────────────
+        self.rendezvous_active: bool = False
+        self.rendezvous_pos: tuple[int, int] | None = None
+        self.rendezvous_partner_id: int | None = None
+        self.rendezvous_role: str | None = None            # "initiator" | "partner"
+        self.rendezvous_started: int = -1
+        self.rendezvous_timeout: int = -1                  # absolute round number
+
 
     # ── Properties ────────────────────────────────────────────────────────
 
@@ -304,22 +315,23 @@ class Robot(CommunicatingAgent, ABC):
     # ── Communication helpers ─────────────────────────────────────────────
 
     def _build_knowledge_message(self) -> dict:
-        """ Include the waste color in the payload. """
-        
         return {
             "timestamp": self.knowledge.round,
             "sender_id": self.unique_id,
-            "sender_color": self.color.value,   # NEW
+            "sender_color": self.color.value,
+            "sender_pos": self.pos,         # for rendezvous midpoint
             "known_wastes": {
                 pos: self.knowledge.last_seen[pos]
                 for pos in self.knowledge.known_wastes
                 if pos in self.knowledge.last_seen
                 and self.knowledge.last_seen[pos] is not None
             },
+            "last_visited": dict(self.knowledge.last_visited),  #to improve coordination between agents
             "carried_wastes": [
                 w.waste_type.value for w in self.carrying if w is not None
             ],
         }
+    
 
     def _prepare_broadcast_knowledge(self):
         """
@@ -378,7 +390,9 @@ class Robot(CommunicatingAgent, ABC):
                 sender_id = payload.get("sender_id")
                 sender_color = payload.get("sender_color")  
                 msg_timestamp: int = payload.get("timestamp", -1)
-                known_wastes = payload.get("known_wastes")            
+                known_wastes = payload.get("known_wastes")   
+                sender_pos = payload.get("sender_pos")  
+                shared_last_visited = payload.get("last_visited")         
 
                 # Only ingest same-color waste positions — other-color peers
                 # track wastes that aren't targets for this robot.
@@ -390,6 +404,18 @@ class Robot(CommunicatingAgent, ABC):
                         if round_seen > self.knowledge.last_seen.get(pos, -1):
                             self.knowledge.last_seen[pos] = round_seen
                             self.knowledge.known_wastes.add(pos)
+                
+                #  merge last_visited (element-wise max) with same color robots
+                if isinstance(shared_last_visited, dict):
+                    for pos_raw, round_visited in shared_last_visited.items():
+                        pos = tuple(pos_raw) if not isinstance(pos_raw, tuple) else pos_raw
+                        if round_visited is None:
+                            continue
+                        current = self.knowledge.last_visited.get(pos, -1)
+                        if round_visited > current: 
+                            #update only when the knowledge share is more recent
+                            self.knowledge.last_visited[pos] = round_visited
+
 
                 # Keep carried-waste tracking regardless of sender color
                 if sender_id is not None:
@@ -397,6 +423,8 @@ class Robot(CommunicatingAgent, ABC):
                     self.knowledge.data[f"carried_by_{sender_id}"] = {
                         "wastes": carried if isinstance(carried, list) else [],
                         "timestamp": msg_timestamp,
+                        "pos": sender_pos,  
+                        "color": sender_color,
                     }
             # ── Border drop announcement ───────────────────────────────────
             elif performative == MessagePerformative.INFORM_DROP:
@@ -472,6 +500,105 @@ class Robot(CommunicatingAgent, ABC):
             elif performative == MessagePerformative.REJECT_EXCHANGE:
                 self.wait_answer = False
 
+            # ── Rendezvous request received ────────────────────────────────
+            elif performative == MessagePerformative.REQUEST_RENDEZVOUS:
+                payload = message.get_content()
+                if not isinstance(payload, dict):
+                    continue
+                # Conditions to accept: same color, carrying singleton, not already in rendezvous
+                if (self.color.value == payload.get("sender_color")
+                        and len(self.carrying) == 1
+                        and self.carrying[0].waste_type == self.color
+                        and not self.rendezvous_active):
+                    meeting_pos = payload.get("proposed_pos")
+                    if meeting_pos is not None:
+                        meeting_pos = tuple(meeting_pos) if not isinstance(meeting_pos, tuple) else meeting_pos
+                        initiator_pos = payload.get("sender_pos")
+                        if initiator_pos is not None:
+                            initiator_pos = tuple(initiator_pos) if not isinstance(initiator_pos, tuple) else initiator_pos
+                        # Enter CONFIRMED_PARTNER state tentatively
+                        self.rendezvous_active = True
+                        self.rendezvous_pos = meeting_pos
+                        self.rendezvous_partner_id = payload.get("sender_id")
+                        self.rendezvous_role = "partner"
+                        self.rendezvous_started = self.knowledge.round
+                        # Dynamic timeout: 2 x Manhattan distance between robots
+                        if initiator_pos is not None and self.pos is not None:
+                            dist = abs(self.pos[0] - initiator_pos[0]) + abs(self.pos[1] - initiator_pos[1])
+                        else:
+                            dist = 10  # conservative fallback
+                        self.rendezvous_timeout = self.knowledge.round + max(10, 2 * dist)
+                        self._queue_rendezvous_accept(message.get_exp(), meeting_pos)
+
+            # ── Rendezvous accepted by a partner ───────────────────────────
+            elif performative == MessagePerformative.ACCEPT_RENDEZVOUS:
+                payload = message.get_content()
+                if not isinstance(payload, dict):
+                    continue
+                # Only valid if we're in REQUESTING state and no partner yet locked
+                if (self.rendezvous_active
+                        and self.rendezvous_role == "initiator"
+                        and self.rendezvous_partner_id is None):
+                    partner_id = payload.get("sender_id")
+                    meeting_pos = payload.get("pos")
+                    if partner_id is not None and meeting_pos is not None:
+                        meeting_pos = tuple(meeting_pos) if not isinstance(meeting_pos, tuple) else meeting_pos
+                        self.rendezvous_partner_id = partner_id
+                        # Find partner robot to send CONFIRM
+                        partner = next(
+                            (a for a in self.model.agents
+                            if isinstance(a, Robot) and a.unique_id == partner_id),
+                            None
+                        )
+                        if partner is not None:
+                            self._queue_rendezvous_confirm(partner.get_name(), partner_id, meeting_pos)
+
+            # ── Rendezvous confirmed by initiator ─────────────────────────
+            elif performative == MessagePerformative.CONFIRM_RENDEZVOUS:
+                payload = message.get_content()
+                if not isinstance(payload, dict):
+                    continue
+                partner_id = payload.get("partner_id")
+                # Case 1: I'm the chosen partner → confirm my state
+                if (self.rendezvous_active
+                        and self.rendezvous_role == "partner"
+                        and self.unique_id == partner_id):
+                    pass  # already in CONFIRMED_PARTNER state, nothing to do
+                # Case 2: I'm a third party who had tentatively accepted → back off
+                elif (self.rendezvous_active
+                        and self.rendezvous_role == "partner"
+                        and self.unique_id != partner_id):
+                    self._reset_rendezvous()
+
+            # ── Rendezvous ended (success or abort by peer) ───────────────
+            elif performative == MessagePerformative.END_RENDEZVOUS:
+                payload = message.get_content()
+                sender_id = payload.get("sender_id") if isinstance(payload, dict) else None
+                # If the sender was my partner (either role), reset
+                if (self.rendezvous_active
+                        and self.rendezvous_partner_id == sender_id):
+                    self._reset_rendezvous()          
+    
+    def _try_periodic_broadcast(self) -> Action | None:
+        """
+        Force a knowledge broadcast every BROADCAST_EVERY_K_ROUNDS rounds,
+        or via the epsilon mechanism in between. Returns a SendMessages action
+        or None.
+        """
+        if not self.can_communicate:
+            return None
+        due = (self.knowledge.round % BROADCAST_EVERY_K_ROUNDS == 0
+            and self.knowledge.round > 0)
+        if due or randint(0, 99) < int(BROADCAST_EPSILON * 100):
+            self._prepare_broadcast_knowledge()
+            if self.messages_to_send:
+                msgs = list(self.messages_to_send)
+                self.messages_to_send.clear()
+                return SendMessages(msgs)
+        return None
+
+
+
     def _queue_pickup_notification(self, pos: tuple[int, int] | Position):
         """Queue an INFORM_PICKUP for same-color peers.
 
@@ -529,6 +656,185 @@ class Robot(CommunicatingAgent, ABC):
                     MessagePerformative.INFORM_DROP,
                     payload,
                 )
+            )
+
+
+    # ----------------- helper methods for rendez vous --------------
+
+    def _reset_rendezvous(self):
+        self.rendezvous_active = False
+        self.rendezvous_pos = None
+        self.rendezvous_partner_id = None
+        self.rendezvous_role = None
+        self.rendezvous_started = -1
+        self.rendezvous_timeout = -1
+
+    def _in_endgame(self, knowledge: Knowledge) -> bool:
+        """
+        Rendezvous only abled in endgame.
+        True if conditions warrant initiating a rendezvous:
+        - communication enabled
+        - color is GREEN or YELLOW (red doesn't need partner)
+        - carrying exactly 1 waste of own color
+        - no known waste of own color remaining
+        - at least one same-color peer also carrying 1 waste of own color (recently)
+        - carried_since > 10 (give normal exchange a chance first)
+        """
+        if not self.can_communicate:
+            return False
+        if self.color not in (Color.GREEN, Color.YELLOW):
+            return False
+        if len(self.carrying) != 1 or self.carrying[0].waste_type != self.color:
+            return False
+        # if len(knowledge.known_wastes) > 0:
+        #     return False
+        # if self.carried_since < 10:
+        #     return False
+        
+        # Look for same-color peer also carrying singleton
+        for key, info in knowledge.data.items():
+            if not key.startswith("carried_by_"):
+                continue
+            if info.get("color") != self.color.value:
+                continue
+            # Require recent info (within last 2 broadcast cycles)
+            if knowledge.round - info.get("timestamp", -1) > 2 * BROADCAST_EVERY_K_ROUNDS:
+                continue
+            wastes = info.get("wastes", [])
+            if wastes.count(self.color.value) == 1:
+                return True
+        return False
+
+    def _find_endgame_peer(self, knowledge: Knowledge) -> tuple[int, tuple[int,int]] | None:
+        """
+        Find a same-color peer carrying a singleton with lower unique_id than self
+        (the one with the LOWEST id becomes initiator, tie-broken by unique_id ordering).
+        Returns (peer_id, peer_pos) or None.
+        """
+        my_id = self.unique_id
+        best = None
+        for key, info in knowledge.data.items():
+            if not key.startswith("carried_by_"):
+                continue
+            if info.get("color") != self.color.value:
+                continue
+            if knowledge.round - info.get("timestamp", -1) > 2 * BROADCAST_EVERY_K_ROUNDS:
+                continue
+            wastes = info.get("wastes", [])
+            if wastes.count(self.color.value) != 1:
+                continue
+            peer_id = int(key.split("_")[-1])
+            if peer_id == my_id:
+                continue
+            peer_pos = info.get("pos")
+            if peer_pos is None:
+                continue
+
+            # Prefer peer with lowest id; self must have LOWER id than peer to initiate
+            if my_id < peer_id:
+                if best is None or peer_id < best[0]:
+                    best = (peer_id, tuple(peer_pos))
+        return best
+
+    def _compute_meeting_cell(self, partner_pos: tuple[int,int],
+                            knowledge: Knowledge) -> tuple[int,int] | None:
+        """Nearest visitable cell in own zone to the midpoint of self and partner."""
+        if not knowledge.positions:
+            return None
+        my_pos = knowledge.positions[-1]
+        mx = (my_pos[0] + partner_pos[0]) // 2
+        my = (my_pos[1] + partner_pos[1]) // 2
+        candidates = [
+            (abs(x - mx) + abs(y - my), (x, y))
+            for (x, y) in knowledge.visitable_cells
+            if knowledge.cell_data.get((x, y), {}).get("my_zone")
+        ]
+        if not candidates:
+            # Fall back: any visitable cell
+            candidates = [
+                (abs(x - mx) + abs(y - my), (x, y))
+                for (x, y) in knowledge.visitable_cells
+            ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda c: c[0])[1]
+
+    def _queue_rendezvous_request(self, partner_id: int, partner_pos: tuple[int,int],
+                                meeting_pos: tuple[int,int]):
+        """Queue REQUEST_RENDEZVOUS to partner only (not a broadcast)."""
+        if not self.can_communicate:
+            return
+        partner = next(
+            (a for a in self.model.agents if isinstance(a, Robot) and a.unique_id == partner_id),
+            None
+        )
+        if partner is None:
+            return
+        payload = {
+            "sender_id": self.unique_id,
+            "sender_color": self.color.value,
+            "sender_pos": self.pos,
+            "proposed_pos": meeting_pos,
+            "timestamp": self.knowledge.round,
+        }
+        self.messages_to_send.append(
+            Message(self.get_name(), partner.get_name(),
+                    MessagePerformative.REQUEST_RENDEZVOUS, payload)
+        )
+
+    def _queue_rendezvous_accept(self, initiator_name: str, meeting_pos: tuple[int,int]):
+        if not self.can_communicate:
+            return
+        payload = {
+            "sender_id": self.unique_id,
+            "sender_color": self.color.value,
+            "sender_pos": self.pos,
+            "pos": meeting_pos,
+            "timestamp": self.knowledge.round,
+        }
+        self.messages_to_send.append(
+            Message(self.get_name(), initiator_name,
+                    MessagePerformative.ACCEPT_RENDEZVOUS, payload)
+        )
+
+    def _queue_rendezvous_confirm(self, partner_name: str, partner_id: int,
+                                    meeting_pos: tuple[int,int]):
+        """CONFIRM goes to all same-color peers so third-parties back off."""
+        if not self.can_communicate:
+            return
+        payload = {
+            "sender_id": self.unique_id,
+            "partner_id": partner_id,
+            "pos": meeting_pos,
+            "timestamp": self.knowledge.round,
+        }
+        for agent in self.model.agents:
+            if not isinstance(agent, Robot) or agent is self:
+                continue
+            if agent.color != self.color:
+                continue
+            self.messages_to_send.append(
+                Message(self.get_name(), agent.get_name(),
+                        MessagePerformative.CONFIRM_RENDEZVOUS, payload)
+            )
+
+    def _queue_rendezvous_end(self, reason: str):
+        """Broadcast END_RENDEZVOUS to same-color peers."""
+        if not self.can_communicate:
+            return
+        payload = {
+            "sender_id": self.unique_id,
+            "reason": reason,
+            "timestamp": self.knowledge.round,
+        }
+        for agent in self.model.agents:
+            if not isinstance(agent, Robot) or agent is self:
+                continue
+            if agent.color != self.color:
+                continue
+            self.messages_to_send.append(
+                Message(self.get_name(), agent.get_name(),
+                        MessagePerformative.END_RENDEZVOUS, payload)
             )
 
     # ── Agent cycle ───────────────────────────────────────────────────────
@@ -775,12 +1081,20 @@ class GreenRobot(Robot):
         if len(carried_wastes) == 2 and all(
             w is not None and w.waste_type == Color.GREEN for w in carried_wastes
         ):
+            
+            if self.rendezvous_active:
+                self._queue_rendezvous_end("transform_complete")
+                self._reset_rendezvous()
             return Transform(carried_wastes)
 
         # ── P2: Drop waste because peer accepted our exchange proposal ────
         if self.drop_object and carried_wastes:
             
             if waste_to_drop is not None:
+                if self.rendezvous_active:
+                    self._queue_rendezvous_end("handoff_complete")
+                    self._reset_rendezvous()
+
                 self.drop_object = False
                 self.carried_since = 0
                 self.must_move = True
@@ -792,6 +1106,36 @@ class GreenRobot(Robot):
         green_wastes = current_cell_data.get("wastes", [])
         if green_wastes and len(carried_wastes) < 2 and not self.must_move and not (pos==self.last_dropped_pos) and carry_green:
             return self.pick_up(green_wastes[0])
+        
+        # ── P3.5a: Rendezvous timeout : took too long, abort meeting  ─────────────────────────────────────
+        if self.rendezvous_active and self.knowledge.round > self.rendezvous_timeout:
+            self._queue_rendezvous_end("timeout")
+            self._reset_rendezvous()
+            flush_after_abort = self._flush_messages()
+            if flush_after_abort is not None:
+                return flush_after_abort
+
+        # ── P3.5b: Rendezvous exchange if at/near meeting cell ────────────
+        if (self.rendezvous_active
+                and self.rendezvous_partner_id is not None
+                and self.rendezvous_pos is not None):
+            # Locate partner in neighbourhood
+            partner = None
+            for r in self.knowledge.robots_neighborhood:
+                if r.unique_id == self.rendezvous_partner_id:
+                    partner = r
+                    break
+            if partner is not None and self.rendezvous_role == "initiator":
+                # I hand off my singleton to partner via standard exchange
+                if len(self.carrying) == 1 and self.carrying[0].waste_type == self.color:
+                    self.messages_to_send.append(
+                        self._prepare_exchange_proposal(
+                            self.carrying[0], partner.get_name()
+                        )
+                    )
+                    self.wait_answer = True
+                    return self._flush_messages()
+
 
         # ── P4: Flush pending outgoing messages ───────────────────────────
         flush = self._flush_messages()
@@ -809,14 +1153,50 @@ class GreenRobot(Robot):
                 self.carried_since = 0
                 return PutDown(carried_wastes[0])
             return self._move_in_direction((1, 0), knowledge)
+        
+        # ── P5.5: Travel to rendezvous meeting cell ───────────────────────
+        if (self.rendezvous_active
+                and self.rendezvous_pos is not None
+                and self.rendezvous_partner_id is not None):
+            # Sanity: if I'm no longer a singleton, abort -> no meeting needed if I carry more than one waste
+            # or when I do carry any waste
+            if len(self.carrying) != 1 or self.carrying[0].waste_type != self.color:
+                self._queue_rendezvous_end("state_changed")
+                self._reset_rendezvous()
+                fl = self._flush_messages()
+                if fl is not None:
+                    return fl
+            else:
+                if pos == self.rendezvous_pos:
+                    return Wait()  # at meeting cell, wait for partner
+                return self._move_towards(self.rendezvous_pos, knowledge)
 
-        # ── P6: Propose exchange if stuck carrying for too long ───────────
+        # ── P6.5: End-game initiation ─────────────────────────────────────
+        if self._in_endgame(knowledge) and not self.rendezvous_active:
+            peer = self._find_endgame_peer(knowledge)
+            if peer is not None:
+                peer_id, peer_pos = peer
+                meeting = self._compute_meeting_cell(peer_pos, knowledge)
+                if meeting is not None:
+                    self.rendezvous_active = True
+                    self.rendezvous_pos = meeting
+                    self.rendezvous_partner_id = None      # set after ACCEPT
+                    self.rendezvous_role = "initiator"
+                    self.rendezvous_started = self.knowledge.round
+                    dist = abs(self.pos[0] - peer_pos[0]) + abs(self.pos[1] - peer_pos[1])
+                    self.rendezvous_timeout = self.knowledge.round + max(10, 2 * dist)
+                    self._queue_rendezvous_request(peer_id, peer_pos, meeting)
+                    return self._flush_messages()
+
+
+        # ── P6: Propose exchange if stuck carrying for too long (not possible during rendezvous) ───────────
         if (
             self.can_communicate
             and carried_wastes
             and self.carried_since > 10
             and not self.wait_answer
             and not self.must_move
+            and not self.rendezvous_active 
         ):
             neighbour = self._find_neighbour_of_color(Color.GREEN)
             if neighbour is not None:
@@ -827,14 +1207,14 @@ class GreenRobot(Robot):
                 )
                 self.wait_answer = True
                 return self._flush_messages()
-            else:
-                # No neighbour found: drop and flag to move away
-                self.must_move = True
-                self.carried_since = 0
-                if waste_to_drop :
-                    self._queue_drop_notification(pos, waste_to_drop)
-                    self.last_dropped_pos = pos
-                    return PutDown(waste_to_drop)
+            # else:
+            #     # No neighbour found: drop and flag to move away
+            #     self.must_move = True
+            #     self.carried_since = 0
+            #     if waste_to_drop :
+            #         self._queue_drop_notification(pos, waste_to_drop)
+            #         self.last_dropped_pos = pos
+            #         return PutDown(waste_to_drop)
 
         # ── P6b: Handle wait_answer (send msgs instead of idling) ─────────
         if self.wait_answer:
@@ -851,7 +1231,7 @@ class GreenRobot(Robot):
             return self._go_to_closest_waste(knowledge)
 
         # ── P8: Epsilon broadcast ─────────────────────────────────────────
-        broadcast_action = self._try_broadcast()
+        broadcast_action = self._try_periodic_broadcast()
         if broadcast_action is not None:
             return broadcast_action
 
@@ -912,10 +1292,17 @@ class YellowRobot(Robot):
         if len(carried_wastes) == 2 and all(
             w is not None and w.waste_type == Color.YELLOW for w in carried_wastes
         ):
+            if self.rendezvous_active:
+                self._queue_rendezvous_end("transform_complete")
+                self._reset_rendezvous()
             return Transform(carried_wastes)
 
         # ── P2: Drop waste because peer accepted our exchange proposal ────
         if self.drop_object and carried_wastes and waste_to_drop:  
+                if self.rendezvous_active:
+                    self._queue_rendezvous_end("handoff_complete")
+                    self._reset_rendezvous()
+                
                 self.drop_object = False
                 self.carried_since = 0
                 self.last_dropped_pos = pos
@@ -926,6 +1313,36 @@ class YellowRobot(Robot):
         yellow_wastes = current_cell_data.get("wastes", [])
         if yellow_wastes and len(carried_wastes) < 2 and pos != self.last_dropped_pos and carry_yellow:
             return self.pick_up(yellow_wastes[0])
+        
+
+        # ── P3.5a: Rendezvous timeout ─────────────────────────────────────
+        if self.rendezvous_active and self.knowledge.round > self.rendezvous_timeout:
+            self._queue_rendezvous_end("timeout")
+            self._reset_rendezvous()
+            flush_after_abort = self._flush_messages()
+            if flush_after_abort is not None:
+                return flush_after_abort
+
+        # ── P3.5b: Rendezvous exchange if at/near meeting cell ────────────
+        if (self.rendezvous_active
+                and self.rendezvous_partner_id is not None
+                and self.rendezvous_pos is not None):
+            # Locate partner in neighbourhood
+            partner = None
+            for r in self.knowledge.robots_neighborhood:
+                if r.unique_id == self.rendezvous_partner_id:
+                    partner = r
+                    break
+            if partner is not None and self.rendezvous_role == "initiator":
+                # I hand off my singleton to partner via standard exchange
+                if len(self.carrying) == 1 and self.carrying[0].waste_type == self.color:
+                    self.messages_to_send.append(
+                        self._prepare_exchange_proposal(
+                            self.carrying[0], partner.get_name()
+                        )
+                    )
+                    self.wait_answer = True
+                    return self._flush_messages()        
 
         # ── P4: Flush pending outgoing messages ───────────────────────────
         flush = self._flush_messages()
@@ -945,6 +1362,41 @@ class YellowRobot(Robot):
                 return PutDown(carried_wastes[0])
             return self._move_in_direction((1, 0), knowledge)
 
+        # ── P5.5: Travel to rendezvous meeting cell ───────────────────────
+        if (self.rendezvous_active
+                and self.rendezvous_pos is not None
+                and self.rendezvous_partner_id is not None):
+            # Sanity: if I'm no longer a singleton, abort
+            if len(self.carrying) != 1 or self.carrying[0].waste_type != self.color:
+                self._queue_rendezvous_end("state_changed")
+                self._reset_rendezvous()
+                fl = self._flush_messages()
+                if fl is not None:
+                    return fl
+            else:
+                if pos == self.rendezvous_pos:
+                    return Wait()  # at meeting cell, wait for partner
+                return self._move_towards(self.rendezvous_pos, knowledge)
+
+        # ── P6.5: End-game initiation ─────────────────────────────────────
+        if self._in_endgame(knowledge) and not self.rendezvous_active:
+            peer = self._find_endgame_peer(knowledge)
+            if peer is not None:
+                peer_id, peer_pos = peer
+                meeting = self._compute_meeting_cell(peer_pos, knowledge)
+                if meeting is not None:
+                    self.rendezvous_active = True
+                    self.rendezvous_pos = meeting
+                    self.rendezvous_partner_id = None      # set after ACCEPT
+                    self.rendezvous_role = "initiator"
+                    self.rendezvous_started = self.knowledge.round
+                    dist = abs(self.pos[0] - peer_pos[0]) + abs(self.pos[1] - peer_pos[1])
+                    self.rendezvous_timeout = self.knowledge.round + max(10, 2 * dist)
+                    self._queue_rendezvous_request(peer_id, peer_pos, meeting)
+                    return self._flush_messages()
+
+
+
         # ── P6: Propose exchange if stuck carrying for too long ───────────
         if (
             self.can_communicate
@@ -952,6 +1404,7 @@ class YellowRobot(Robot):
             and self.carried_since > 10
             and not self.wait_answer
             and not self.must_move
+            and not self.rendezvous_active
         ):
             neighbour = self._find_neighbour_of_color(Color.YELLOW)
             if neighbour is not None:
@@ -962,13 +1415,13 @@ class YellowRobot(Robot):
                 )
                 self.wait_answer = True
                 return self._flush_messages()
-            else: #emergency drop
-                self.must_move = True
-                self.carried_since = 0                
-                if waste_to_drop:
-                    self._queue_drop_notification(pos, waste_to_drop)
-                    self.last_dropped_pos = pos
-                    return PutDown(waste_to_drop)
+            # else: #emergency drop
+            #     self.must_move = True
+            #     self.carried_since = 0                
+            #     if waste_to_drop:
+            #         self._queue_drop_notification(pos, waste_to_drop)
+            #         self.last_dropped_pos = pos
+            #         return PutDown(waste_to_drop)
 
         # ── P6b: Handle wait_answer ───────────────────────────────────────
         if self.wait_answer:
@@ -982,7 +1435,7 @@ class YellowRobot(Robot):
             return self._go_to_closest_waste(knowledge)
 
         # ── P8: Epsilon broadcast ─────────────────────────────────────────
-        broadcast_action = self._try_broadcast()
+        broadcast_action = self._try_periodic_broadcast()
         if broadcast_action is not None:
             return broadcast_action
 
@@ -1098,7 +1551,7 @@ class RedRobot(Robot):
             return self._go_to_closest_waste(knowledge)
 
         # ── P8: Epsilon broadcast ─────────────────────────────────────────
-        broadcast_action = self._try_broadcast()
+        broadcast_action = self._try_periodic_broadcast()
         if broadcast_action is not None:
             return broadcast_action
 

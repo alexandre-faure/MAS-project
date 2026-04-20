@@ -16,6 +16,12 @@ class MessagePerformative(Enum):
     QUERY_REF = 106
     INFORM_REF = 107
     INFORM_DROP = 108       
-    INFORM_PICKUP = 109      
+    INFORM_PICKUP = 109  
+
+    REQUEST_RENDEZVOUS = 110
+    ACCEPT_RENDEZVOUS  = 111
+    CONFIRM_RENDEZVOUS = 112
+    END_RENDEZVOUS     = 113
+
     def __str__(self):
         return '{0}'.format(self.name)

@@ -2,6 +2,7 @@
 
 from enum import Enum
 
+BROADCAST_EVERY_K_ROUNDS = 20
 
 class Zone(Enum):
     Z1 = 1

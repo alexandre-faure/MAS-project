@@ -224,10 +224,9 @@ To evaluate the performance of our model, we defined several metrics:
 |   $E_k$ with $k \in \{green, yellow, red\}$    | Exploration ratio                    | The ratio of time steps where robots are exploring (moving while searching for a waste) to the total number of time steps. This metric gives us insight into how much time the robots spend exploring the environment versus collecting waste. |
 |   $ls_k$ with $k \in \{green, yellow, red\}$   | Average lifespan of wastes           | The average number of time steps that a waste remains in the environment before being fully processed (collected and transformed). This metric helps us understand how quickly the waste is being processed by the robots.      
 
-
-## Communication procedure
-
-what kind of message ? which method ? when do they communicate ?
+> Compare the case with rendezvous and without rendezvous 
+> If rendezvous = no emergency drop ()
+> the current version = rendezvous. The version with emergency drop was deleted
 
 ## Authors
 
