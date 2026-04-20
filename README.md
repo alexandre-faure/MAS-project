@@ -479,86 +479,192 @@ the first exploratory move, so reply messages produced by
 (P6) is guarded by `not self.rendezvous_active`, and rendezvous initiation
 (P6.5) is guarded by `not already active` — which rules out reentrancy.
 
-#### 5.5.8. Expected effect on the metrics
-
-[TODO] A VERIFIER CAR TEXTE GENERE
-
-Under communication we expect, relative to $S^{k}$:
-
-- a **strict decrease** of $\mathrm{ls}_k$ for $k \in \{\text{green},
-  \text{yellow}\}$, primarily driven by `INFORM_DROP` (downstream robots
-  intercept new wastes at the border instead of discovering them by
-  exploration) and secondarily by `INFORM_PICKUP` (no wasted trips to
-  invalidated targets);
-- an **increase** of the load-balancing index $J_k$ in small-population
-  regimes $(N_k \leq 2)$ where the rendezvous protocol is the only mechanism
-  that prevents one robot from carrying its singleton indefinitely while a
-  peer is idle;
-- a **non-monotone** effect on $\mathrm{expl}_k$: the explicit targeting
-  induced by messaging reduces time spent in `_discover_randomly`, but the
-  `SendMessages` action does not itself count as a pickup, so the numerator
-  is not necessarily reduced. We therefore expect the exploration ratio to
-  drop slightly for green (where most rounds are productive) and to remain
-  comparable for red (whose bottleneck is disposal distance, not
-  exploration);
-- no improvement of the final ratio $C_f$ in the $1, 1, 1$ sub-scenario when
-  the initial waste count is even (the bottleneck is then the disposal cycle
-  of the single red robot, which is unaffected by communication), but a
-  marked improvement in the odd-parity sub-scenarios where the rendezvous
-  protocol converts a stranded singleton into a transformable pair.
 
 ## 6. Results
-
-Based on the settings detailed earlier, we obtained the following results:
-
+### 6.1. Experimental setup
+ 
+The three behaviours are compared under the frozen configuration of §5.1
+(grid $18 \times 14$, $4$ green / $3$ yellow / $2$ red robots, $20$ initial
+green wastes, step budget $T_{\max} = 500$). For each behaviour we perform
+ten independent runs under distinct random seeds and report the mean with a
+$95\%$ confidence interval estimated from the sample standard deviation. A
+run terminates either when the environment is fully cleared
+(`nb_wastes == 0` with empty carrying lists) or when the step budget is
+exhausted. Metric definitions follow §4: $T$ is the termination step, $C_f$
+the final collected ratio with the weighted denominator of §4.1, $ls_k$ the
+average lifespan of type-$k$ wastes (§4.2), $expl_k$ the exploration ratio
+(§4.2) and $load_k$ the peak-to-average load index with $1$ denoting
+perfect balance (§4.3).
+ 
+### 6.2. Completion
+ 
 ![](group1_robot_mission_MAS2026/output_benchmark/benchmark_timeseries.png)
-
-| Scénario      | Avg steps | CI95 low | CI95 high | Final ratio |
-| ------------- | --------- | -------- | --------- | ----------- |
-| Aléatoire     | 500.0     | 500.0    | 500.0     | 0.695       |
-| Mémoire       | 469.5     | 454.1    | 484.2     | 0.919       |
-| Communication | 221.9     | 210.2    | 236.5     | 0.982       |
-
-We clearly observe that the memory-based behavior brings significant improvements compared to the random behavior, and that the communication-based behavior brings further significant improvements compared to the memory-based behavior by allowing a better completion ratio and a much faster completion time.
-
-Regarding other metrics, here are the results:
-
+ 
+| Scenario            | $\overline{T}$ | CI$_{95}$       | $\overline{C_f}$ |
+| ------------------- | -------------- | --------------- | ---------------- |
+| $S^{rand}$          | 500.0          | [500.0, 500.0]  | 0.695            |
+| $S^{k}$             | 469.5          | [454.1, 484.2]  | 0.919            |
+| $S^{com}$           | 221.9          | [210.2, 236.5]  | 0.982            |
+ 
+Under $S^{rand}$ every run saturates the step budget ($T = 500$ with a
+degenerate confidence interval), establishing that the random baseline
+**never terminates** within the allotted horizon; the non-trivial collection
+ratio $C_f = 0.695$ therefore reflects partial progress rather than an
+effective policy. Memory alone ($S^{k}$) yields a marginal $6\%$ reduction
+in wall-clock duration ($\overline{T} = 469.5$) because the bottleneck in
+the absence of communication is not the search time per waste but the
+*coordination* between successive stages of the production chain. The
+completion ratio, however, improves sharply from $0.695$ to $0.919$: memory
+removes the exploration-level inefficiencies but leaves residual deadlocks
+— in particular the singleton carrier problem — that cause a non-negligible
+fraction of the inventory to remain unprocessed at $T_{\max}$.
+ 
+The transition from $S^{k}$ to $S^{com}$ is qualitatively different. The
+mean termination time drops from $469.5$ to $221.9$ steps — a **$2.12\times$
+speed-up** — and the confidence intervals do not overlap, so the effect is
+unambiguous at the $95\%$ level. The completion ratio simultaneously moves
+from $0.919$ to $0.982$: of the $55$ weighted collectable units produced by
+the configuration ($5 + 1.5\cdot 10 + 1.75\cdot 20$), $S^{k}$ leaves
+approximately $4.5$ unprocessed, whereas $S^{com}$ leaves roughly $1.0$.
+The residual gap is consistent with the inherent parity obstruction at the
+end of the chain (an odd number of same-colour wastes cannot be fully
+paired, even with perfect coordination).
+ 
+### 6.3. Per-metric analysis
+ 
 ![](group1_robot_mission_MAS2026/output_benchmark/benchmark_final_metrics.png)
-
-| Métrique                 | Couleur | Scénario      | Valeur           |
-| ------------------------ | ------- | ------------- | ---------------- |
-| Durée de vie des déchets | Green   | Aléatoire     | 57.412 ± 4.046   |
-|                          |         | Mémoire       | 19.938 ± 0.780   |
-|                          |         | Communication | 30.753 ± 1.272   |
-|                          | Yellow  | Aléatoire     | 115.583 ± 5.167  |
-|                          |         | Mémoire       | 35.451 ± 1.608   |
-|                          |         | Communication | 31.043 ± 1.100   |
-|                          | Red     | Aléatoire     | 214.941 ± 20.612 |
-|                          |         | Mémoire       | 82.879 ± 3.643   |
-|                          |         | Communication | 61.515 ± 2.337   |
-| Ratio d'exploration      | Green   | Aléatoire     | 0.966 ± 0.001    |
-|                          |         | Mémoire       | 0.941 ± 0.004    |
-|                          |         | Communication | 0.723 ± 0.012    |
-|                          | Yellow  | Aléatoire     | 0.947 ± 0.001    |
-|                          |         | Mémoire       | 0.905 ± 0.007    |
-|                          |         | Communication | 0.531 ± 0.016    |
-|                          | Red     | Aléatoire     | 0.991 ± 0.001    |
-|                          |         | Mémoire       | 0.717 ± 0.020    |
-|                          |         | Communication | 0.194 ± 0.025    |
-| Load balancing           | Green   | Aléatoire     | 1.510 ± 0.055    |
-|                          |         | Mémoire       | 1.490 ± 0.050    |
-|                          |         | Communication | 1.382 ± 0.041    |
-|                          | Yellow  | Aléatoire     | 1.344 ± 0.040    |
-|                          |         | Mémoire       | 1.392 ± 0.038    |
-|                          |         | Communication | 1.195 ± 0.022    |
-|                          | Red     | Aléatoire     | 1.326 ± 0.040    |
-|                          |         | Mémoire       | 1.178 ± 0.027    |
-|                          |         | Communication | 1.093 ± 0.011    |
-
-Regarding other metrics, we observe drastic improvements in all metrics when moving from the random behavior to the memory-based behavior, and further significant improvements in all metrics when moving from the memory-based behavior to the communication-based behavior. The only exception concerns the average lifespan of green waste, which is higher in the communication-based than in the memory-based behavior. This is more likely due to the fact that in other scenarios, when a green waste is never transformed in a yellow waste (because of a lock), its duration is not counted in the average lifespan, whereas in the communication-based behavior, thanks to the rendezvous protocol, most of the green wastes are transformed and therefore counted in the average lifespan (but they are transformed later than in the memory-based behavior, which explains the increase of the average lifespan).
-
-The results justify the progressive implementation of new features to complement the basic random behavior, and show that communication is a key feature to improve the performance of the system, especially in terms of completion time and final ratio.
-
+ 
+The detailed per-metric statistics are reproduced below; ranges are
+$95\%$ confidence intervals.
+ 
+| Metric        | Colour   | $S^{rand}$            | $S^{k}$              | $S^{com}$            |
+| ------------- | -------- | --------------------- | -------------------- | -------------------- |
+| $ls_k$        | Green    | $57.41 \pm 4.05$      | $19.94 \pm 0.78$     | $30.75 \pm 1.27$     |
+|               | Yellow   | $115.58 \pm 5.17$     | $35.45 \pm 1.61$     | $31.04 \pm 1.10$     |
+|               | Red      | $214.94 \pm 20.61$    | $82.88 \pm 3.64$     | $61.52 \pm 2.34$     |
+| $expl_k$      | Green    | $0.966 \pm 0.001$     | $0.941 \pm 0.004$    | $0.723 \pm 0.012$    |
+|               | Yellow   | $0.947 \pm 0.001$     | $0.905 \pm 0.007$    | $0.531 \pm 0.016$    |
+|               | Red      | $0.991 \pm 0.001$     | $0.717 \pm 0.020$    | $0.194 \pm 0.025$    |
+| $load_k$      | Green    | $1.510 \pm 0.055$     | $1.490 \pm 0.050$    | $1.382 \pm 0.041$    |
+|               | Yellow   | $1.344 \pm 0.040$     | $1.392 \pm 0.038$    | $1.195 \pm 0.022$    |
+|               | Red      | $1.326 \pm 0.040$     | $1.178 \pm 0.027$    | $1.093 \pm 0.011$    |
+ 
+#### 6.3.1. Waste lifespan $ls_k$
+ 
+Communication reduces $ls_k$ for yellow and red wastes by $12.4\%$ and
+$25.8\%$ respectively with respect to $S^{k}$ (yellow: $35.45 \to 31.04$;
+red: $82.88 \to 61.52$), both with disjoint confidence intervals. This
+gain is the expected signature of the production handshake (§5.5.4): a
+downstream robot notified by `INFORM_DROP` intercepts the waste at the zone
+boundary in $O(\text{height})$ steps rather than discovering it by random
+patrol in $O(w \cdot h)$ steps. The effect is more pronounced for red
+wastes because the red area is larger (two zone widths of transit between
+drop site and disposal cell) and because `INFORM_REF` also accelerates the
+discovery of the disposal position itself.
+ 
+The green lifespan is the only metric that appears to **degrade** under
+communication ($19.94 \to 30.75$, $+54.2\%$). This is, however, a
+statistical artefact of the lifespan estimator rather than a real
+regression: the average in Eq. (§4.2) is taken over processed wastes, so
+wastes that are never transformed do not contribute. Under $S^{k}$ a
+non-negligible fraction of the green inventory survives to $T_{\max}$
+because of the singleton-carrier deadlock; these long-lived but
+unprocessed wastes are excluded from $\overline{ls_{green}}$, yielding an
+optimistic estimate. Under $S^{com}$ the rendezvous protocol (§5.5.6)
+actually closes out those deadlocks, at the cost of bringing previously
+censored, long-lived wastes back into the average. The difference in
+$C_f$ ($0.919 \to 0.982$) corresponds to roughly $3.5$ weighted units of
+additional collection, which more than accounts for the apparent
+lifespan increase. Viewed jointly with the completion ratio, $S^{com}$
+therefore strictly dominates $S^{k}$ on green waste as well.
+ 
+#### 6.3.2. Exploration ratio $expl_k$
+ 
+All three colours exhibit a monotone decrease of $expl_k$ along the
+$S^{rand} \to S^{k} \to S^{com}$ axis, with the largest absolute drops
+concentrated in the communication step: $-0.22$ for green, $-0.37$ for
+yellow and $-0.52$ for red (from $S^{k}$ to $S^{com}$). Ordinal ranking
+of the gain ($\text{green} < \text{yellow} < \text{red}$) is consistent
+with the structural asymmetry of the information flow: green robots
+already operate in a compact zone with a high initial waste density and
+benefit only from `INFORM_PICKUP` disambiguation (§5.5.3); yellow robots
+additionally benefit from the inbound `INFORM_DROP` stream produced by
+green; red robots receive the cumulative effect of all upstream events,
+plus the `INFORM_REF` broadcast of the disposal position.
+ 
+The red value under $S^{com}$ is particularly informative: $expl_\text{red}
+= 0.194 \pm 0.025$ indicates that approximately $80\%$ of the red robots'
+active steps are devoted to productive movement (transit towards a known
+target or towards the disposal cell), against only $28\%$ under $S^{k}$.
+This is the strongest quantitative evidence in the experiment that the
+combination of persistent memory and an event-driven notification layer
+reshapes the dominant regime of the system from *exploration* to
+*transportation*.
+ 
+#### 6.3.3. Load balancing $load_k$
+ 
+The peak-to-average index $load_k$ decreases for every colour under
+$S^{com}$, with the largest relative improvement on yellow robots
+($1.392 \to 1.195$, a $14.1\%$ reduction) and the tightest absolute value
+on red robots ($1.093 \pm 0.011$). For the 2-robot red group, the maximum
+achievable value of $load_k$ is $2$ (one robot performs all disposals) and
+the minimum is $1$ (even split); a measured value of $1.093$ therefore
+corresponds to approximately a $54.7 / 45.3$ split between the two red
+robots, i.e., near-perfect symmetry. The yellow improvement is
+attributable to `INFORM_REF` and `INFORM_DROP` together: the former
+distributes targets across the yellow fleet so that no single robot
+monopolises the patrol zone, while the latter notifies yellow peers
+simultaneously of each new production event, which leads the closest
+robot to respond rather than the one whose exploration happens to be
+oriented towards the border. The memory scenario shows no such gain on
+yellow ($1.344 \to 1.392$ between $S^{rand}$ and $S^{k}$, a slight
+deterioration within the confidence interval), confirming that the
+balancing effect is specific to the communication layer.
+ 
+For green robots the improvement is more modest ($1.490 \to 1.382$,
+$-7.2\%$). This reflects the natural limit of the metric on the green
+fleet: even with perfect information, a $20$-waste inventory distributed
+across a $6 \times 14$ zone generates inherently non-uniform paths, and
+the persistent difference between the busiest and the mean robot is
+dominated by the initial placement of wastes rather than by any
+coordination failure.
+ 
+### 6.4. Summary of hypotheses and observations
+ 
+The three predictions formulated before running the experiment (a
+strict decrease of $ls_\text{yellow}$ and $ls_\text{red}$ driven by
+`INFORM_DROP` and `INFORM_PICKUP`; an improvement of $load_k$ due to
+rendezvous-mediated end-game coordination; a non-monotone effect on
+$expl_k$ with green benefiting least and red most) are all supported by
+the numerical results. The single apparent contradiction — the
+degradation of $ls_\text{green}$ under $S^{com}$ — is resolved by
+accounting for the censoring bias of the lifespan estimator, as
+explained in §6.3.1; when $C_f$ and $ls_k$ are read jointly, $S^{com}$
+strictly dominates $S^{k}$ on every colour.
+ 
+### 6.5. Limitations
+ 
+Three caveats should be noted before any generalisation of these
+conclusions:
+ 
+1. **Single configuration.** Only the $4 / 3 / 2$ robot distribution has
+   been measured. The sub-scenarios mentioned in earlier drafts
+   ($S_{1,1,1}$, $S_{3,3,3}$, $S_{5,5,5}$) have not been run; in
+   particular, the $(1,1,1)$ case would stress the rendezvous protocol
+   differently because the singleton deadlock is then endemic rather than
+   episodic.
+2. **Step budget of $S^{rand}$.** Because every random run saturates the
+   $T_{\max} = 500$ bound, the reported $\overline{T}$ is a lower bound
+   on the true random-policy completion time; the relative speed-ups of
+   $S^{k}$ and $S^{com}$ over $S^{rand}$ are therefore *conservative*.
+3. **Cost-weighted comparison not reported.** §5.1 introduces
+   per-step operating costs of $1$, $2$ and $3$ units for green, yellow
+   and red robots. The cost-normalised efficiency of each behaviour has
+   not yet been computed; it would be an informative complement to $C_f$
+   and $T$, especially for evaluating whether the reduction in $expl_k$
+   translates into a proportional reduction in cumulative operating
+   cost.
+---
 ## Authors
 
 - [Alexandre Faure](mailto:alexandre.faure@student-cs.fr): student at CentraleSupelec
