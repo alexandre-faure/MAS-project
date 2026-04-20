@@ -574,6 +574,8 @@ class Robot(CommunicatingAgent, ABC):
         in_area=True → restrict to cells in the robot's own zone.
         """
         self.nb_exploring_steps += 1
+        if not knowledge.positions:
+            return Wait()
 
         cur_pos = knowledge.positions[-1]
         available_moves = [
@@ -752,7 +754,7 @@ class GreenRobot(Robot):
             return self._flush_messages()
 
         pos = knowledge.positions[-1]
-        carried_wastes = knowledge.carried_wastes[-1]
+        carried_wastes = self._get_current_carried_wastes(knowledge)
         current_cell_data = knowledge.cell_data.get(pos, {})
         waste_to_drop = next(
                 (
@@ -889,7 +891,7 @@ class YellowRobot(Robot):
             return self._flush_messages()
 
         pos = knowledge.positions[-1]
-        carried_wastes = knowledge.carried_wastes[-1]
+        carried_wastes = self._get_current_carried_wastes(knowledge)
         current_cell_data = knowledge.cell_data.get(pos, {})
 
         if carried_wastes:
@@ -1033,7 +1035,7 @@ class RedRobot(Robot):
             return self._flush_messages()
 
         pos = knowledge.positions[-1]
-        carried_wastes = knowledge.carried_wastes[-1]
+        carried_wastes = self._get_current_carried_wastes(knowledge)
         current_cell_data = knowledge.cell_data.get(pos, {})
         disposal_pos = knowledge.disposal_pos
 
@@ -1119,4 +1121,3 @@ class RedRobot(Robot):
             return self._discover_randomly(knowledge, in_area=True)
         # Stay on boundary and patrol vertically
         return self._discover_randomly(knowledge, axis=1)
-
