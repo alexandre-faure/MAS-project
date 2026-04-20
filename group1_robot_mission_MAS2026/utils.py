@@ -2,7 +2,6 @@
 
 from enum import Enum
 
-BROADCAST_EVERY_K_ROUNDS = 20
 
 class Zone(Enum):
     Z1 = 1
@@ -61,7 +60,7 @@ class ActionType(Enum):
     PICK_UP = "pick_up"
     PUT_DOWN = "put_down"
     TRANSFORM = "transform"
-    SEND_MESSAGES = "send_messages"
+    GIVE = "give"
 
 
 class Action:
@@ -112,5 +111,5 @@ class Transform(Action):
 
 class SendMessages(Action):
     def __init__(self, messages: list):
-        super().__init__(ActionType.SEND_MESSAGES)
+        super().__init__(ActionType.GIVE)
         self.messages = messages

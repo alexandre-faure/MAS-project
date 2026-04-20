@@ -2,7 +2,65 @@
 
 Project related to the Multiple Agents Systems lecture at CentraleSupelec. The purpose of the project is to implement a simple multi-agent system where multiple robots have to collaborate to achieve a common goal: to collect radioactive waste in a grid environment. The robots have to navigate the grid, collect the waste, transform it, then bring it to a specific location.
 
-The project is implemented in Python using the Solara framework with Mesa.
+
+## Table of Contents
+
+## Table of Contents
+
+0. [**Introduction**](#introduction)
+    * [Project Overview](#project-overview)
+    * [Technical Contributions](#technical-contributions)
+    * [Technical Stack](#technical-stack)
+2. [**Setup**](#1-setup)
+    * [1.1 Prerequisites](#11-prerequisites)
+    * [1.2 Running the Model](#12-running-the-model)
+    * [1.3 Scenario Comparison Mode](#13-running-the-model-with-the-comparisons-of-three-different-scenari)
+3. [**Model Hypothesis**](#2-model-hypothesis)
+4. [**Model Design**](#3-model-design)
+    * [3.1 Robot Typology](#31-robots-typology)
+    * [3.2 Waste Transformation](#32-waste-transformation)
+5. [**Metrics**](#4-metrics)
+    * [4.1 Completion Metrics](#41-completion-metrics)
+    * [4.2 Speed Metrics](#42-speed-metrics)
+    * [4.3 Load Balancing Metrics](#43-load-balancing-metrics)
+6. [**Model Evaluation**](#5-model-evaluation)
+    * [5.1 Settings](#51-settings)
+    * [5.2 Scenarios](#52-scenarios)
+    * [5.3 Scenario 1: Random Behavior](#53-first-scenario--random-behavior)
+    * [5.4 Scenario 2: Knowledge-Based Behavior](#54-knowledge-based-behavior)
+    * [5.5 Scenario 3: Communication-Based Behavior](#55-communication-based-behavior)
+        * [5.5.1 Message-Passing Model](#551-message-passing-model)
+        * [5.5.2 Periodic Knowledge Broadcast](#552-periodic-knowledge-broadcast-inform_ref)
+        * [5.5.3 Perception Invalidation](#553-perception-invalidation-inform_pickup)
+        * [5.5.4 Production Information](#554-production-information-inform_drop)
+        * [5.5.5 Local Waste Hand-off](#555-local-waste-hand-off-propose_to_give-family)
+        * [5.5.6 Remote Hand-off: Rendezvous Protocol](#556-remote-hand-off--rendezvous-protocol)
+        * [5.5.7 Deliberation Priorities](#557-deliberation-priorities)
+        * [5.5.8 Expected Impact on Metrics](#558-expected-effect-on-the-metrics)
+7. [**6. Results**](#6-results)
+8. [**Authors**](#authors)
+---
+
+## Introduction
+
+### Project Overview
+The core of this research focuses on the self-organization of heterogeneous agents tasked with the collection, multi-stage transformation, and final disposal of radioactive waste. Operating in a tiered environment (Green, Yellow, and Red zones), the system evaluates how different levels of agent intelligence—ranging from purely stochastic behavior to FIPA-compliant communication protocols—impact collective efficiency and resource management.
+
+### Technical Contributions
+- **Hierarchical Agent Architecture**: Implementation of specialized robot classes (Green, Yellow, Red) with distinct operational constraints, zone restrictions, and cooperative dependencies.
+
+- **Deliberation Logic**: Development of a priority-based decision engine that manages state transitions, from random exploration to targeted patrolling and collective perception.Distributed 
+
+- **Communication Protocol**: A messaging framework based on FIPA standards, featuring:
+    - **Shared Epistemic States**: Collective knowledge synchronization to eliminate redundant exploration.
+    - **Dynamic Deadlock Resolution**: An end-game `Rendezvous` Protocol using peer-to-peer negotiation and midpoint convergence to handle isolated resources.
+    - **Quantitative Performance Analysis**: An evaluation framework using metrics such as Waste Lifespan ($ls_k$), Exploration Efficiency ($expl_k$), and Load Balancing ($load_k$) to compare emergent behaviors across scenarios.
+
+
+### Technical stack
+The model is built using **Python 3.10+** and using the **Mesa** library for agent-based modeling and **Solara** for real-time web-based visualization and performance monitoring.
+
+---
 
 ## 1. Setup
 
@@ -45,7 +103,7 @@ Nonetheless, we had to make some assumptions to implement the model. Here are th
 
 ## 3. Model design
 
-### 3.1. Robots
+### 3.1. Robots typology
 Each of the three robot types are implemented in separate classes that all implement a common interface `Robot`. 
 
 Here are the specificities of each robot type:
@@ -54,7 +112,7 @@ Here are the specificities of each robot type:
 - **Yellow robots**: they are the only ones that can collect yellow waste produced by the green robots. They cannot go in the red area. When they have 2 yellow waste in their inventory, they transform them into a red waste.
 - **Red robots**: they are the only ones that can collect red waste produced by the yellow robots. They can go everywhere but they are the only ones that can bring the waste to the disposal cell.
 
-### 3.2. Waste
+### 3.2. Waste transformation
 
 Wastes are inert objects that can be merged (for green and yellow waste) or collected by the robots. They are represented as objects that have a type (green, yellow or red) and a position on the grid. Green wastes are initially generated in the green area and can be transformed by the robots as follows:
 
