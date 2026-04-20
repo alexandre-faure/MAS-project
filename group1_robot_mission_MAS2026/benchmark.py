@@ -251,13 +251,14 @@ def main():
     parser.add_argument("--output-dir", type=str, default=os.path.join(_DIR, "figures"), help="Output directory for figures")
     args = parser.parse_args()
 
-    seeds = list(range(args.seeds))
+    seeds = list(range(args.seeds,args.seeds+1))
+    #seeds = list(range(args.seeds))
     tasks = [(scen, seed, args.max_step, {}) for scen in SCENARIOS for seed in seeds]
     total = len(tasks)
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    print(f"Running {total} simulations ({len(SCENARIOS)} scenarios × {args.seeds} seeds) ...")
+    print(f"Running {total} simulations ({len(SCENARIOS)} scenarios × {len(seeds)} seeds) ...")
 
     results = []
     errors = []

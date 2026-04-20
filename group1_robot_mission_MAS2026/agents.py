@@ -207,21 +207,14 @@ class Robot(CommunicatingAgent, ABC):
 
         other_robots = [a for a in cellmates if isinstance(a, Robot)]
 
-        if self.knowledge.min_x_zone:    
-            visitable = (
-            radioactivity_cell.radioactivity <= self.max_radioactivity
-            and pos != self.pos
-            and not other_robots
-            and pos[0] - self.knowledge.min_x_zone > -3
-        )
-        
-        else :
-            visitable = (
+        visitable = (
             radioactivity_cell.radioactivity <= self.max_radioactivity
             and pos != self.pos
             and not other_robots
         )
-        
+        # Confine to own zone + 1 patrol column westward, once the border is known
+        if self.knowledge.min_x_zone is not None:
+            visitable = visitable and pos[0] >= self.knowledge.min_x_zone - 1
 
         return {
             "pos": pos,
@@ -259,6 +252,18 @@ class Robot(CommunicatingAgent, ABC):
         # Snapshot of carried wastes — exactly once per step (file-2 bug fix)
         self.knowledge.carried_wastes.append(self.carrying.copy())
 
+        # # ── anchor zone borders to own-zone cells ────────────────────────────
+        # cur_pos_data = percepts.get(cur_pos)
+        # if cur_pos_data is not None and cur_pos_data.get("my_zone"):
+        #     # Western border: smallest x ever observed while standing in own zone
+        #     if self.knowledge.min_x_zone is None or cur_pos[0] < self.knowledge.min_x_zone:
+        #         self.knowledge.min_x_zone = cur_pos[0]
+        #     # Eastern border: largest x ever observed while standing in own zone
+        #     if self.knowledge.max_x_zone is None or cur_pos[0] > self.knowledge.max_x_zone:
+        #         self.knowledge.max_x_zone = cur_pos[0]
+
+
+
         for pos, data in percepts.items():
             if data is None:
                 continue
@@ -283,9 +288,9 @@ class Robot(CommunicatingAgent, ABC):
 
             cur_pos_data = percepts.get(cur_pos)
             if cur_pos_data is not None:
-                if not cur_pos_data.get("is_higher_zone") and data.get("is_lower_zone"):
+                if not cur_pos_data.get("is_higher_zone") and data.get("is_lower_zone") and cur_pos_data.get("my_zone"):
                     self.knowledge.min_x_zone = cur_pos[0]
-                if not cur_pos_data.get("is_lower_zone") and data.get("is_higher_zone"):
+                if not cur_pos_data.get("is_lower_zone") and data.get("is_higher_zone") and cur_pos_data.get("my_zone"):
                     self.knowledge.max_x_zone = cur_pos[0]
 
             for robot in data.get("robots", []):
@@ -295,9 +300,12 @@ class Robot(CommunicatingAgent, ABC):
     # ── Communication helpers ─────────────────────────────────────────────
 
     def _build_knowledge_message(self) -> dict:
+        """ Include the waste color in the payload. """
+        
         return {
             "timestamp": self.knowledge.round,
             "sender_id": self.unique_id,
+            "sender_color": self.color.value,   # NEW
             "known_wastes": {
                 pos: self.knowledge.last_seen[pos]
                 for pos in self.knowledge.known_wastes
@@ -365,22 +373,22 @@ class Robot(CommunicatingAgent, ABC):
                     continue
 
                 sender_id = payload.get("sender_id")
+                sender_color = payload.get("sender_color")  # NEW
                 msg_timestamp: int = payload.get("timestamp", -1)
                 known_wastes = payload.get("known_wastes")
 
-                if isinstance(known_wastes, dict):
+                # Only ingest same-color waste positions — other-color peers
+                # track wastes that aren't targets for this robot.
+                if isinstance(known_wastes, dict) and sender_color == self.color.value:
                     for pos_raw, round_seen in known_wastes.items():
-                        pos = (
-                            tuple(pos_raw)
-                            if not isinstance(pos_raw, tuple)
-                            else pos_raw
-                        )
+                        pos = tuple(pos_raw) if not isinstance(pos_raw, tuple) else pos_raw
                         if round_seen is None:
                             continue
                         if round_seen > self.knowledge.last_seen.get(pos, -1):
                             self.knowledge.last_seen[pos] = round_seen
                             self.knowledge.known_wastes.add(pos)
 
+                # Keep carried-waste tracking regardless of sender color
                 if sender_id is not None:
                     carried = payload.get("carried_wastes")
                     self.knowledge.data[f"carried_by_{sender_id}"] = {
@@ -1010,7 +1018,7 @@ class RedRobot(Robot):
         if self.random.random() < 1 / Robot.MAX_PATROL_DURATION:
             self.knowledge.must_explore = Robot.EXPLORE_DURATION
 
-        # Move towards z1/z2 boundary to intercept dropped yellow wastes
+        # Move towards z2/z3 boundary to intercept dropped red wastes
         if not knowledge.must_explore and knowledge.min_x_zone is None:
             return self._move_in_direction((-1, 0), knowledge)
 

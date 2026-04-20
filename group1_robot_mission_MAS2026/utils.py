@@ -108,22 +108,6 @@ class Transform(Action):
         self.wastes = wastes
 
 
-class PickUp(Action):
-    def __init__(self, waste):
-        super().__init__(ActionType.PICK_UP)
-        self.waste = waste
-
-
-class PutDown(Action):
-    def __init__(self, waste):
-        super().__init__(ActionType.PUT_DOWN)
-        self.waste = waste
-
-
-class Transform(Action):
-    def __init__(self, wastes: list):
-        super().__init__(ActionType.TRANSFORM)
-        self.wastes = wastes
 
 class SendMessages(Action):
     def __init__(self, messages: list):
