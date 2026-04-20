@@ -5,8 +5,6 @@ Project related to the Multiple Agents Systems lecture at CentraleSupelec. The p
 
 ## Table of Contents
 
-## Table of Contents
-
 0. [**Introduction**](#introduction)
     * [Project Overview](#project-overview)
     * [Technical Contributions](#technical-contributions)
@@ -179,7 +177,7 @@ $$ load_k = \frac{max_{R_{col}}(N(R_{col}))}
 {mean_{R_{col}}(N(R_{col}))}
 $$
 
-Where $N(R_{col})$ is the number of wastes of color $col$ collected by all the robots. A load balancing ratio close to 1 indicates that the workload is evenly distributed among the robots, while a ratio far from 1 indicates that one or a few robots are doing most of the work.
+Where $N(R_{col})$ is the number of wastes of color $col$ collected by all the robots of a given color. A load balancing ratio close to 1 indicates that the workload is evenly distributed among the robots, while a ratio far from 1 indicates that one or a few robots are doing most of the work.
 
 ---
 ## 5. Model evaluation
@@ -282,13 +280,13 @@ when only a single matching waste remains accessible to a given robot.
 
 #### 5.5.1. Message-passing model
 
-The message service is piggy-backed on Mesa's scheduler. Reception is
+Reception is
 *asynchronous* and *free*: at the very beginning of every step each robot
 drains its inbox through `_process_incoming_messages`, updating its
 `Knowledge` object and possibly queueing reply messages; no action budget is
 consumed. Emission, by contrast, is *synchronous* with the deliberation
 cycle: queued outgoing messages are flushed through a dedicated `SendMessages`
-action, which — because each robot performs exactly one action per step —
+action, which (because each robot performs exactly one action per step)
 precludes any concurrent movement, pickup, drop or transformation. Messages
 are therefore visible to their recipients only one round after emission,
 matching the usual one-step latency assumption of distributed multi-agent
@@ -315,8 +313,8 @@ announcement) to reuse the same infrastructure.
 
 #### 5.5.2. Periodic knowledge broadcast (`INFORM_REF`)
 
-Every `BROADCAST_EVERY_K_ROUNDS` rounds — and, in between, with a small
-probability `BROADCAST_EPSILON` — a robot emits a snapshot of its beliefs.
+Every `BROADCAST_EVERY_K_ROUNDS` rounds and, in between, with a small
+probability `BROADCAST_EPSILON` a robot emits a snapshot of its beliefs.
 The payload contains: the current round (used as a timestamp), the sender's
 unique identifier, colour and current position, the sender's `known_wastes`
 with per-cell `last_seen` timestamps, its `last_visited` dictionary, and the
@@ -376,8 +374,8 @@ through the priority list.
 This protocol resolves the singleton-carrier deadlock without any
 distance-limited motion: two robots that happen to meet can pool their load
 in O(1) rounds and the receiver immediately performs the transformation.
-Note that, by construction, the protocol is **local** — a same-colour peer
-outside the neighbourhood cannot trigger it — which motivates the
+Note that, by construction, the protocol is **local** (a same-colour peer
+outside the neighbourhood cannot trigger it) which motivates the
 long-distance variant described next.
 
 #### 5.5.6. Remote hand-off — rendezvous protocol
