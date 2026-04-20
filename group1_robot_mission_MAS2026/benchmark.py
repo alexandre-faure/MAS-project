@@ -251,8 +251,8 @@ def main():
     parser.add_argument("--output-dir", type=str, default=os.path.join(_DIR, "figures"), help="Output directory for figures")
     args = parser.parse_args()
 
-    seeds = list(range(args.seeds,args.seeds+1))
-    #seeds = list(range(args.seeds))
+    #seeds = list(range(args.seeds,args.seeds+1))
+    seeds = list(range(args.seeds))
     tasks = [(scen, seed, args.max_step, {}) for scen in SCENARIOS for seed in seeds]
     total = len(tasks)
 
